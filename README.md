@@ -401,6 +401,54 @@ This keeps the regular build output in `build/Fusion` and also updates
 `DEV` in the firmware information screen. Publishing the updated archive file
 remains an explicit Git operation.
 
+### K-head Q_OUT (valid-receive indicator)
+
+`ENABLE_KHEAD_Q_OUT` repurposes PA9 - normally USART1_TX, wired to the K-head
+2.5mm ring - as an active-low, open-drain indication that the radio is actually
+receiving a valid signal. This turns the K-head into a standard analog hotspot
+interface:
+
+```
+2.5mm Tip     = SPK OUT
+2.5mm Ring    = Q OUT      <- this option
+2.5mm Sleeve  = GND
+3.5mm Ring    = MIC IN
+3.5mm Sleeve  = PTT IN
+```
+
+The pin is released (pulled up, ~3.3 V) at all times except while
+`FUNCTION_RECEIVE` is active, when it is pulled to GND. Manual monitor
+(`FUNCTION_MONITOR`) deliberately does **not** assert it. Being open drain, an
+external device is free to bias the line to 3.3 V or 5 V, or to drive a
+transistor, MOSFET or analog switch directly.
+
+Build it with:
+
+```bash
+./compile-firmware.sh Fusion -DENABLE_UART=OFF -DENABLE_KHEAD_Q_OUT=ON
+```
+
+`ENABLE_UART=OFF` is mandatory - the build fails otherwise, because USART1_TX
+claims the same pin.
+
+**Known limitations**
+
+- **The K-head serial port is gone.** CHIRP, UV Studio calibration backup and
+  K5Viewer must go over USB-C instead of a Kenwood two-plug programming cable.
+  DFU flashing is unaffected: the bootloader reconfigures PA9/PA10 itself.
+- **Battery save delays the indication.** With BatSav on, the radio sleeps on a
+  duty cycle and Q_OUT can assert several hundred milliseconds late. Turn
+  BatSav off for hotspot use.
+- **CTCSS/DCS delays the indication.** `FUNCTION_INCOMING` waits for the
+  subaudible decoder before promoting to `FUNCTION_RECEIVE`, so Q_OUT lags the
+  audio by tens to hundreds of milliseconds and the external device misses the
+  head of the transmission. On a channel with no subaudible tone the two happen
+  in the same main-loop iteration.
+- **Q_OUT trails the audio path by roughly 1 ms**, the time `APP_StartListening()`
+  spends bit-banging BK4819 registers before it calls `FUNCTION_Select()`.
+- **No per-VFO distinction.** Under dual watch or scan, valid reception on
+  either VFO asserts Q_OUT.
+
 ### Notes
 
 - The first run may take a few minutes while Docker builds the base image.
