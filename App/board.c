@@ -141,6 +141,43 @@ void BOARD_GPIO_Init(void)
     InitStruct.Pin = LL_GPIO_PIN_14 | LL_GPIO_PIN_13;
     LL_GPIO_Init(GPIOA, &InitStruct);
 #endif // ENABLE_SWD
+
+#ifdef ENABLE_KHEAD_Q_OUT
+    // K-head 2.5mm ring (PA9) becomes the valid-receive indicator instead of
+    // USART1_TX. Drive the pin inactive before switching it to an output so
+    // power-up does not emit a spurious low pulse.
+    //
+    // Open drain is also selected up front: LL_GPIO_Init() writes MODER first
+    // and OTYPER last, so left to itself it would leave the pin push-pull for
+    // a few cycles. OTYPER has no effect until the pin becomes an output, so
+    // setting it early is free and skips that transient.
+    //
+    // PA10 was USART1_RX. With ENABLE_UART off nothing initialises it any more
+    // and it would sit floating on an externally exposed connector, so park it
+    // at the UART idle level.
+    do
+    {
+        LL_GPIO_InitTypeDef QOutInit;
+        LL_GPIO_StructInit(&QOutInit);
+
+        LL_GPIO_SetOutputPin(GPIOA, LL_GPIO_PIN_9);
+        LL_GPIO_SetPinOutputType(GPIOA, LL_GPIO_PIN_9, LL_GPIO_OUTPUT_OPENDRAIN);
+
+        QOutInit.Pin        = LL_GPIO_PIN_9;
+        QOutInit.Mode       = LL_GPIO_MODE_OUTPUT;
+        QOutInit.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+        QOutInit.Pull       = LL_GPIO_PULL_UP;
+        QOutInit.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+        LL_GPIO_Init(GPIOA, &QOutInit);
+
+        LL_GPIO_StructInit(&QOutInit);
+        QOutInit.Pin  = LL_GPIO_PIN_10;
+        QOutInit.Mode = LL_GPIO_MODE_INPUT;
+        QOutInit.Pull = LL_GPIO_PULL_UP;
+        LL_GPIO_Init(GPIOA, &QOutInit);
+
+    } while (0);
+#endif // ENABLE_KHEAD_Q_OUT
 }
 
 void BOARD_ADC_Init(void)
