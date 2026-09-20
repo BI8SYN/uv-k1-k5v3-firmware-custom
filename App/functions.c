@@ -228,6 +228,18 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
 
     gCurrentFunction = Function;
 
+#ifdef ENABLE_KHEAD_Q_OUT
+    // Track real RF reception only. FUNCTION_INCOMING means squelch opened but
+    // CTCSS/DCS has not been validated yet, and FUNCTION_MONITOR means the user
+    // forced squelch open by hand - neither is a valid-receive indication, so
+    // FUNCTION_IsRx() is deliberately not used here.
+    //
+    // This sits immediately after the assignment because the rest of
+    // FUNCTION_Select() returns early for FOREGROUND and POWER_SAVE; only here
+    // is every state transition covered.
+    GPIO_SetQOut(Function == FUNCTION_RECEIVE);
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     if (nextIsActive && !nextIsTx && (!previousWasActive || previousWasTx))
         RXTX_LOG_BeginRx(gRxVfo, Function);
