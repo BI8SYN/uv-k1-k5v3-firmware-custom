@@ -393,7 +393,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src uvk1-uvk5v3 \
 
 Expected: 开启时体积严格大于基线。这一条同时证明了两件事——钩子编译进去了，且默认关闭时它确实不存在（惰性）。把两个数字记进任务记录。
 
-- [ ] **Step 4: 反汇编确认写的是 GPIOA 而非别的端口**
+- [ ] **Step 4: 反汇编确认写的是 GPIOA 而非别的端口（基址 0x50000000）**
 
 ```bash
 cd /Users/liyongsheng/projects/uv-k1-k5v3-firmware-custom
@@ -401,7 +401,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD":/src -w /src uvk1-uvk5v3 \
   arm-none-eabi-objdump -d --disassemble='FUNCTION_Select' build/Fusion/f4hwn.fusion.elf
 ```
 
-Expected: 函数体内出现 GPIOA 基址 `0x48000000` 的字面量，以及 `0x200`（`LL_GPIO_PIN_9` 掩码）。注意此时 build 目录是 Q_OUT ON 的那次构建（Step 3 的第二次），顺序不要颠倒。把相关几行贴进任务记录。
+Expected: 函数体内出现 GPIOA 基址（PY32F071 的 IOPORT_BASE = `0x50000000`，不是 STM32F0 的 `0x48000000`），以及 `0x200`（`LL_GPIO_PIN_9` 掩码）。注意此时 build 目录是 Q_OUT ON 的那次构建（Step 3 的第二次），顺序不要颠倒。把相关几行贴进任务记录。
 
 - [ ] **Step 5: 提交**
 
