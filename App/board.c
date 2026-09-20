@@ -144,13 +144,8 @@ void BOARD_GPIO_Init(void)
 
 #ifdef ENABLE_KHEAD_Q_OUT
     // K-head 2.5mm ring (PA9) becomes the valid-receive indicator instead of
-    // USART1_TX. Drive the pin inactive before switching it to an output so
-    // power-up does not emit a spurious low pulse.
-    //
-    // Open drain is also selected up front: LL_GPIO_Init() writes MODER first
-    // and OTYPER last, so left to itself it would leave the pin push-pull for
-    // a few cycles. OTYPER has no effect until the pin becomes an output, so
-    // setting it early is free and skips that transient.
+    // USART1_TX. Drive the pin to its inactive level before switching it to an
+    // output so power-up does not emit a spurious pulse.
     //
     // PA10 was USART1_RX. With ENABLE_UART off nothing initialises it any more
     // and it would sit floating on an externally exposed connector, so park it
@@ -160,14 +155,29 @@ void BOARD_GPIO_Init(void)
         LL_GPIO_InitTypeDef QOutInit;
         LL_GPIO_StructInit(&QOutInit);
 
+#ifdef ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH
+        // Push-pull, so inactive is a driven 0 V. Open drain cannot source a
+        // high level at all - it can only release the line - so an active-high
+        // indication needs a real driver. No internal pull: the pin is driven
+        // in both states.
+        LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_9);
+        QOutInit.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+        QOutInit.Pull       = LL_GPIO_PULL_NO;
+#else
+        // Open drain, so inactive releases the line to the pull-up. Select the
+        // output type up front: LL_GPIO_Init() writes MODER first and OTYPER
+        // last, so left to itself it would leave the pin push-pull for a few
+        // cycles. OTYPER has no effect until the pin becomes an output, so
+        // setting it early is free and skips that transient.
         LL_GPIO_SetOutputPin(GPIOA, LL_GPIO_PIN_9);
         LL_GPIO_SetPinOutputType(GPIOA, LL_GPIO_PIN_9, LL_GPIO_OUTPUT_OPENDRAIN);
-
-        QOutInit.Pin        = LL_GPIO_PIN_9;
-        QOutInit.Mode       = LL_GPIO_MODE_OUTPUT;
         QOutInit.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
         QOutInit.Pull       = LL_GPIO_PULL_UP;
-        QOutInit.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+#endif
+
+        QOutInit.Pin   = LL_GPIO_PIN_9;
+        QOutInit.Mode  = LL_GPIO_MODE_OUTPUT;
+        QOutInit.Speed = LL_GPIO_SPEED_FREQ_LOW;
         LL_GPIO_Init(GPIOA, &QOutInit);
 
         LL_GPIO_StructInit(&QOutInit);

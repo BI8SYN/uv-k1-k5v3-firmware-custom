@@ -110,7 +110,14 @@ if(ENABLE_KHEAD_Q_OUT AND ENABLE_UART)
         "Build with -DENABLE_UART=OFF.")
 endif()
 
+if(ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH AND NOT ENABLE_KHEAD_Q_OUT)
+    message(FATAL_ERROR
+        "ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH only selects the polarity of Q_OUT. "
+        "Enable ENABLE_KHEAD_Q_OUT as well, or drop it.")
+endif()
+
 enable_feature(ENABLE_KHEAD_Q_OUT)
+enable_feature(ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH)
 
 if(ENABLE_USB)
     target_link_libraries(App INTERFACE CherryUSB)

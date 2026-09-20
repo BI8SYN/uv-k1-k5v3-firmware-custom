@@ -25,6 +25,7 @@
                 "ENABLE_FMRADIO": false,
                 "ENABLE_UART": true,
                 "ENABLE_KHEAD_Q_OUT": false,
+                "ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH": false,
                 "ENABLE_USB": true,
                 "ENABLE_AIRCOPY": false,
                 "ENABLE_NOAA": false,

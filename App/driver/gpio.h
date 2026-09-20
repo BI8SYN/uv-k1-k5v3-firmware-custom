@@ -86,15 +86,27 @@ static inline bool GPIO_IsPttPressed()
 
 // Valid-receive indicator on the K-head 2.5mm ring (PA9).
 //
-// Active low and open drain: asserting pulls the line to GND, releasing hands
-// it back to the pull-up so an external device can bias it to 3.3 V or 5 V, or
-// drive a transistor, MOSFET or analog switch directly.
+// Default (active low, open drain): asserting pulls the line to GND, releasing
+// hands it back to the pull-up so an external device can bias it to 3.3 V or
+// 5 V, or drive a transistor, MOSFET or analog switch directly. A disconnected
+// cable or a powered-down radio reads as inactive, which is the fail-safe
+// direction.
+//
+// ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH inverts this and drives push-pull instead, for
+// external inputs that expect a real logic high while receiving.
 static inline void GPIO_SetQOut(bool active)
 {
+#ifdef ENABLE_KHEAD_Q_OUT_ACTIVE_HIGH
+    if (active)
+        GPIO_SetOutputPin(GPIO_PIN_Q_OUT);
+    else
+        GPIO_ResetOutputPin(GPIO_PIN_Q_OUT);
+#else
     if (active)
         GPIO_ResetOutputPin(GPIO_PIN_Q_OUT);
     else
         GPIO_SetOutputPin(GPIO_PIN_Q_OUT);
+#endif
 }
 
 #endif // ENABLE_KHEAD_Q_OUT

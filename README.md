@@ -431,6 +431,30 @@ Build it with:
 `ENABLE_UART=OFF` is mandatory - the build fails otherwise, because USART1_TX
 claims the same pin.
 
+#### Polarity
+
+There is no single convention for carrier-detect outputs; commercial COR lines
+are usually active low, and software that consumes them (SvxLink, app_rpt,
+MMDVM) exposes a polarity setting precisely because it varies. Pick whichever
+the external input expects:
+
+| | Idle | Receiving | Drive |
+|---|---|---|---|
+| default | released, pulled up (~3.3 V) | pulled to GND | open drain |
+| `-DENABLE_KHEAD_Q_OUT_ACTIVE_HIGH=ON` | driven 0 V | driven ~3.3 V | push-pull |
+
+```bash
+./compile-firmware.sh Fusion -DENABLE_UART=OFF \
+    -DENABLE_KHEAD_Q_OUT=ON -DENABLE_KHEAD_Q_OUT_ACTIVE_HIGH=ON
+```
+
+Prefer the default where you can. Open drain active low is fail-safe: an
+unplugged cable or a powered-down radio reads as "no signal". The active-high
+variant reverses that, so a disconnected radio can look like a stuck-open
+squelch to whatever is listening. It also has to drive push-pull, since open
+drain can only pull a line down - it cannot source a high level - which means
+the external side must not bias the line to 5 V.
+
 **Known limitations**
 
 - **The K-head serial port is gone.** CHIRP, UV Studio calibration backup and
