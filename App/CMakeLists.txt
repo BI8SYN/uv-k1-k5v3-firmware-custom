@@ -99,6 +99,19 @@ enable_feature(ENABLE_UART
     # driver/aes.c
 )
 
+# ENABLE_KHEAD_Q_OUT repurposes PA9 as an active-low valid-receive indicator on
+# the K-head 2.5mm ring. USART1_TX uses the same pin, and UART_Init() runs after
+# BOARD_Init(), so with both enabled the UART would silently reclaim PA9 as AF1:
+# the firmware builds, boots, and Q_OUT simply never moves. Fail at configure
+# time instead.
+if(ENABLE_KHEAD_Q_OUT AND ENABLE_UART)
+    message(FATAL_ERROR
+        "ENABLE_KHEAD_Q_OUT needs PA9, which USART1_TX also uses. "
+        "Build with -DENABLE_UART=OFF.")
+endif()
+
+enable_feature(ENABLE_KHEAD_Q_OUT)
+
 if(ENABLE_USB)
     target_link_libraries(App INTERFACE CherryUSB)
     target_compile_definitions(App INTERFACE ENABLE_USB)
