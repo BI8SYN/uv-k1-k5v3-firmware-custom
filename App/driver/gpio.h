@@ -32,6 +32,9 @@ enum GPIO_PINS
     GPIO_PIN_BACKLIGHT      = GPIO_MAKE_PIN(GPIOF, LL_GPIO_PIN_8),
     GPIO_PIN_FLASHLIGHT     = GPIO_MAKE_PIN(GPIOC, LL_GPIO_PIN_13),
     GPIO_PIN_AUDIO_PATH     = GPIO_MAKE_PIN(GPIOA, LL_GPIO_PIN_8),
+#ifdef ENABLE_KHEAD_Q_OUT
+    GPIO_PIN_Q_OUT          = GPIO_MAKE_PIN(GPIOA, LL_GPIO_PIN_9),
+#endif
 };
 
 static inline void GPIO_SetOutputPin(uint32_t Pin)
@@ -78,5 +81,22 @@ static inline bool GPIO_IsPttPressed()
 {
     return !GPIO_IsInputPinSet(GPIO_PIN_PTT);
 }
+
+#ifdef ENABLE_KHEAD_Q_OUT
+
+// Valid-receive indicator on the K-head 2.5mm ring (PA9).
+//
+// Active low and open drain: asserting pulls the line to GND, releasing hands
+// it back to the pull-up so an external device can bias it to 3.3 V or 5 V, or
+// drive a transistor, MOSFET or analog switch directly.
+static inline void GPIO_SetQOut(bool active)
+{
+    if (active)
+        GPIO_ResetOutputPin(GPIO_PIN_Q_OUT);
+    else
+        GPIO_SetOutputPin(GPIO_PIN_Q_OUT);
+}
+
+#endif // ENABLE_KHEAD_Q_OUT
 
 #endif
