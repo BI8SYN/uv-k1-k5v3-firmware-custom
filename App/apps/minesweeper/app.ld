@@ -1,19 +1,6 @@
-/* Overlay-app link script (POC).
- *
- * The blob is linked to run at the PY25Q16 sector-cache overlay VMA (shared with
- * the multiboot RAM stub — never both active at once). Code + rodata + data +
- * bss must all fit in the 4 KiB overlay. objcopy -O binary emits text+rodata+
- * data only; the loader zeroes the overlay before copying, so bss starts clean.
- *
- * VMA must match ADDR(.mb_workspace) in Core/py32f071xb.ld. If the firmware RAM
- * layout shifts, update APP_VMA and the loader's compile-time assert catches a
- * mismatch. */
-
-/* APP_VMA is the target firmware's __mb_workspace_start (read from its .map). It
- * varies with the RAM layout, so pass it from the build: -Wl,--defsym,APP_VMA=0x...
- * The default is only a fallback for a standalone size check. */
+/* Minesweeper overlay app: code, constants, data and BSS share the 4 KiB workspace. */
 APP_VMA    = DEFINED(APP_VMA) ? APP_VMA : 0x20000280;
-APP_LENGTH = 0x1000;       /* 4 KiB sector-cache overlay                        */
+APP_LENGTH = 0x1000;
 
 ENTRY(app_main)
 
@@ -23,7 +10,7 @@ MEMORY {
 
 SECTIONS {
     .app APP_VMA : {
-        KEEP(*(.text.entry))      /* app_main pinned to offset 0 */
+        KEEP(*(.text.entry))
         *(.text .text.*)
         *(.rodata .rodata.*)
         . = ALIGN(4);
@@ -37,7 +24,7 @@ SECTIONS {
 
     __app_end = .;
     ASSERT(__app_end <= APP_VMA + APP_LENGTH,
-           "Breakout overlay app overflows the 4 KiB overlay")
+           "Minesweeper overlay app overflows the 4 KiB overlay")
 
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.eh_frame*) *(.comment) *(.note.*) }
 }
