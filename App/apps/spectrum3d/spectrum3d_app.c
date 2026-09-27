@@ -52,6 +52,7 @@
 
 #define W           128u
 #define FB_H        56u                     /* frame-buffer rows (below the status line) */
+#define PAGES       (FB_H / 8u)             /* frame-buffer pages (LCD lines) */
 #define BINS        64u                     /* points per sweep, 2 px apart  */
 #define LINES       12u
 #define ACC         LINES                   /* history row of the next line  */
@@ -79,15 +80,15 @@
  * to a signal gets a millisecond before its RSSI is confirmed, which prevents
  * a strong station from being smeared across the following frequencies. */
 #define SIGNAL_SETTLE_MS 1u
+#define PARKED           0xFFu              /* measure(): receiver not moved */
 /* Level above the floor that counts as a signal for the settle choice. The
  * display's NOISE_GATE is too low for this: noise alone crosses it on many
  * points and each crossing cost two full waits. */
 #define SIGNAL_DB       10u
-/* Listening to the strongest peak: audio path settle (as FoxHunt), RSSI check
- * period (also a landscape line, as a sweep would be) and how many quiet
- * checks in a row close it (about a second). */
+/* Listening to the strongest peak: audio path settle (as FoxHunt) and how
+ * many quiet RSSI checks in a row close it (about a second: a check, also a
+ * landscape line as a sweep would be, comes every four frames). */
 #define AUDIO_SETTLE_MS 60u
-#define LISTEN_TICK_MS  100u
 #define LISTEN_HANG     8u
 /* Half width, in points, of the station's shape redrawn while listening. */
 #define SHAPE_R         4u
@@ -131,6 +132,7 @@ struct globals {
     int8_t yaw;
     uint8_t pitch;
     uint8_t head, sweeps, prev_key, gate, close_lvl, quiet, peak_bin;
+    uint8_t page;                           /* next page feed() sends, PAGES = status line */
     bool running, hold, saver, abort_sweep, farm, listen, listening;
     uint8_t listen_ref;                     /* first listening level, 0 = none */
     /* the span's SPAN_REC record, read whole: same order and sizes */
@@ -142,9 +144,9 @@ struct globals {
     /* words: Thumb-1 loads them with an immediate offset, while a signed
        halfword needs a register offset or an extra sign extension */
     int32_t ys, yc, ps, pc;                 /* view angles (Q8) for project() */
-    int32_t side[4];                        /* frame: left x, y, right x, y  */
     const app_api_t *api;
     state_t *st;
+    uint8_t *front;                         /* last complete frame, while listening */
     uint32_t centre, first, last_ok;        /* requested centre, window start, region top */
     uint32_t peak_f;                        /* strongest point of the sweep (at peak_bin), 0 = none */
     /* the listened station's levels around peak_bin in the sweep that found
@@ -176,12 +178,22 @@ void *memset(void *dst, int value, size_t size)
 /* Division through the resident helper (API level 2) instead of libgcc's
  * 468-byte signed division. GCC calls __aeabi_idiv for `/` and
  * __aeabi_idivmod for `%`: both find the quotient in r0 (and the remainder in
- * r1), which is how the resident helper returns them. */
+ * r1), which is how the resident helper returns them. put_freq() calls it
+ * too, for both at once: never inlined there. */
+__attribute__((noinline))
 uint64_t __aeabi_idivmod(int32_t n, int32_t d)
 {
     return A->idivmod(n, d);
 }
 uint64_t __aeabi_idiv(int32_t n, int32_t d) __attribute__((alias("__aeabi_idivmod")));
+
+/* A->asset_read from a single place: its slot lies past the 124-byte reach of
+ * a load offset, so each direct call spent 8 bytes on it, a call here 4. */
+__attribute__((noinline))
+static void asset(uint16_t offset, void *buf, uint16_t len)
+{
+    A->asset_read(offset, buf, len);
+}
 
 static uint8_t slen(const char *s)
 {
@@ -199,7 +211,12 @@ static char *put_freq(char *o, int32_t v)
 {
     char t[10];
     uint8_t n = 0;
-    do { t[n++] = (char)('0' + v % 10); v /= 10; } while (v || n < 6u);
+    do {
+        /* one call for both: `%` and `/` would each call the helper */
+        const uint64_t qr = __aeabi_idivmod(v, 10);
+        t[n++] = (char)('0' + (int32_t)(qr >> 32));
+        v = (int32_t)qr;
+    } while (v || n < 6u);
     while (n) {
         *o++ = t[--n];
         if (n == 5u)
@@ -214,10 +231,12 @@ static char *put_freq(char *o, int32_t v)
  * stays in the VFO's band, whose path the loader already selected. */
 static void tune(uint32_t f)
 {
-    A->bk_write(REG_FREQ_LO, (uint16_t)f);
-    A->bk_write(REG_FREQ_HI, (uint16_t)(f >> 16));
-    A->bk_write(REG_CTRL, 0);
-    A->bk_write(REG_CTRL, g.scan_ctrl);
+    /* held in a register: A->bk_write would be reloaded after every call */
+    void (*const write)(uint8_t, uint16_t) = A->bk_write;
+    write(REG_FREQ_LO, (uint16_t)f);
+    write(REG_FREQ_HI, (uint16_t)(f >> 16));
+    write(REG_CTRL, 0);
+    write(REG_CTRL, g.scan_ctrl);
 }
 
 /* Park the receiver on the sweep's first point ahead of time. The jump back
@@ -231,15 +250,19 @@ static void park_start(void)
 
 /* dBm + 160 after `ms` of settling. With no fixed delay, poll the BK4829
  * glitch indicator as the resident fast scanner does, then discard the first
- * RSSI value because it may still belong to the previous frequency. */
+ * RSSI value because it may still belong to the previous frequency. PARKED
+ * (listening, the receiver has not moved): a plain read. */
 static uint8_t measure(uint8_t ms)
 {
-    if (ms)
-        A->delay_ms(ms);
-    for (uint8_t guard = 50u; guard && (A->bk_read(REG_GLITCH) & 0xFFu) >= 200u; guard--)
-        ;
-    A->bk_read(REG_RSSI);                   /* first read may still move */
-    const int16_t dbm = A->rssi_dbm();
+    const app_api_t *const a = A;           /* one load for all the calls */
+    if (ms != PARKED) {
+        if (ms)
+            a->delay_ms(ms);
+        for (uint8_t guard = 50u; guard && (a->bk_read(REG_GLITCH) & 0xFFu) >= 200u; guard--)
+            ;
+        a->bk_read(REG_RSSI);               /* first read may still move */
+    }
+    const int16_t dbm = a->rssi_dbm();
     return (uint8_t)(dbm < -160 ? 0 : dbm > 95 ? 255 : dbm + 160);
 }
 
@@ -248,7 +271,7 @@ static uint8_t measure(uint8_t ms)
 static void place_window(void)
 {
     uint32_t edge[2u * REGION_COUNT];       /* inclusive (lo, hi) pairs */
-    A->asset_read(REGION, edge, sizeof(edge));
+    asset(REGION, edge, sizeof(edge));
     uint32_t lo = 0, hi = 0;                /* in no region: all points flat */
     for (uint8_t r = 0; r < 2u * REGION_COUNT; r += 2u)
         if (g.centre >= edge[r] && g.centre <= edge[r + 1u]) {
@@ -269,7 +292,7 @@ static void place_window(void)
 
 static void restart(void)
 {
-    A->asset_read(SPAN_REC + g.span * SPAN_REC_SIZE, &g.step, SPAN_REC_SIZE);
+    asset(SPAN_REC + g.span * SPAN_REC_SIZE, &g.step, SPAN_REC_SIZE);
     A->bk_write(REG_RX_BW, g.scan_bw);      /* filter matched to the spacing */
     place_window();
     memset(S, 0, sizeof(*S));
@@ -366,7 +389,7 @@ static void sweep(void)
                 park_start();               /* the window may have moved too */
                 return;
             }
-            if (b && !g.saver)
+            if (b)                          /* (the saver returned above) */
                 draw(b >> 4);               /* in-between frame: 1/4, 2/4, 3/4 */
         }
         /* past the region's edge nothing is measured: the point stays flat */
@@ -407,15 +430,17 @@ static void plot(uint8_t x, int32_t y)
         A->fb[y >> 3][x] |= (uint8_t)(1u << (y & 7));
 }
 
-/* 3x5 capsule on fb line 0. The frame starts at x - 2, so x >= 2 (x = 1
- * wrapped to fb[0][255], i.e. a stray mark at fb[1][127]); the landscape
- * under it is cleared first so the XOR inversion stays clean. */
-static void capsule(const char *s, uint8_t x)
+/* 3x5 capsule on fb line 0, or on the status line (the title). The frame
+ * starts at x - 2, so x >= 2 (x = 1 wrapped to fb[0][255], i.e. a stray mark
+ * at fb[1][127]); the landscape under it is cleared first so the XOR
+ * inversion stays clean. For the title, that fb clear is wiped anyway: the
+ * frame is cleared right after the status line is built. */
+static void capsule(const char *s, uint8_t x, bool status)
 {
     const uint8_t end = (uint8_t)(x + slen(s) * 4u);
     for (uint8_t i = (uint8_t)(x - 2u); i <= end; i++)
         A->fb[0][i] = 0;
-    A->print_inverse(s, x, 0, false, true, end);
+    A->print_inverse(s, x, 0, status, true, end);
 }
 
 /* Screen point p = {x, y} of the grid point (x, z) raised by h quarter units. */
@@ -446,17 +471,55 @@ static void line(const int32_t *a, const int32_t *b, bool dotted)
     }
 }
 
-/* The frame's sides from the last depth down to z; the new corners are kept
- * for the next stretch. Painter's order: each stretch goes before the line in
- * front of it, which then hides what lies behind. */
-static void frame_sides(int32_t z)
+/* Exchange n bytes (bytewise: the frame buffer is not word aligned). */
+static void swap(uint8_t *a, uint8_t *b, uint32_t n)
 {
+    while (n--) {
+        const uint8_t t = *a;
+        *a++ = *b;
+        *b++ = t;
+    }
+}
+
+/* While a station is heard, the LCD gets one page per stretch of the frame's
+ * sides (14 per frame, about every 3 ms) and the frames follow each other
+ * with no idle wait: the display traffic is an even flow of short transfers,
+ * as in the resident spectrum. Full-screen transfers (about 11 ms of SPI)
+ * between idle waits made a burst pattern at the frame rate (~18 Hz) and the
+ * check rate (~5 Hz), heard in the audio as a "helicopter" flutter. The
+ * pages come from `front`, the last complete frame, swapped into the frame
+ * buffer only for their transfer so that the frame being drawn there stays
+ * intact; the status line goes out as an eighth page. */
+static void feed(void)
+{
+    const uint8_t p = g.page;
+    g.page = (uint8_t)(p < PAGES ? p + 1u : 0u);
+    if (p == PAGES) {
+        A->blit_status();
+        return;
+    }
+    uint8_t *const f = g.front + p * W, *const fb = A->fb[p];
+    swap(f, fb, W);
+    A->blit_line(p);
+    swap(f, fb, W);
+}
+
+/* The frame's sides from the last depth down to z; the new corners are kept
+ * in `side` (left x, y, right x, y: on draw()'s stack, no literal to reach
+ * it) for the next stretch. Painter's order: each stretch goes before the
+ * line in front of it, which then hides what lies behind. A stretch comes
+ * before each line and before the front edge, evenly spaced: the pace of
+ * feed(). */
+static void frame_sides(int32_t z, int32_t *side)
+{
+    if (g.listening)
+        feed();
     for (uint8_t s = 0; s < 4u; s += 2u) {
         int32_t p[2];
         project(s ? BOARD_X : -BOARD_X, z, 0, p);
-        line(g.side + s, p, false);
-        g.side[s] = p[0];
-        g.side[s + 1u] = p[1];
+        line(side + s, p, false);
+        side[s] = p[0];
+        side[s + 1u] = p[1];
     }
 }
 
@@ -465,7 +528,7 @@ static void frame_sides(int32_t z)
 static void view(void)
 {
     int16_t sinq[SINQ_LEN / 2u];            /* sin() Q8, -45..135 deg by 5 deg */
-    A->asset_read(SINQ, sinq, sizeof(sinq));
+    asset(SINQ, sinq, sizeof(sinq));
     g.ys = sinq[SINQ_ZERO + g.yaw];
     g.yc = sinq[SINQ_ZERO + 18u - g.yaw];   /* cos = sin(90 - angle) */
     g.ps = sinq[SINQ_ZERO + g.pitch];
@@ -476,20 +539,23 @@ static void view(void)
 static void draw(uint8_t quarter)
 {
     char buf[BUF_LEN];
+    int32_t side[4];                        /* frame corners, see frame_sides() */
 
     /* Status line: title (or HOLD), the F-armed and listen icons, the
      * battery. Only on a sweep's main frame: the in-between frames only move
-     * the landscape, and the LCD keeps the status line meanwhile. */
+     * the landscape, and the LCD keeps the status line meanwhile. While
+     * listening, feed() sends it with the pages. */
     if (!quarter) {
         A->status_clear();
-        A->asset_read(g.hold ? T_HOLD : T_TITLE, buf, TEXT_MAX);
-        A->print_inverse(buf, 2, 0, true, true, (uint8_t)(2u + slen(buf) * 4u));
+        asset(g.hold ? T_HOLD : T_TITLE, buf, TEXT_MAX);
+        capsule(buf, 2, true);
         if (g.farm)
-            A->asset_read(BMP_F, A->status_line + 70, BMP_F_LEN);
+            asset(BMP_F, A->status_line + 70, BMP_F_LEN);
         if (g.listen)
-            A->asset_read(BMP_SPEAKER, A->status_line + 55, BMP_SPEAKER_LEN);
+            asset(BMP_SPEAKER, A->status_line + 55, BMP_SPEAKER_LEN);
         A->draw_battery();
-        A->blit_status();
+        if (!g.listening)
+            A->blit_status();
     }
 
     A->display_clear();
@@ -507,9 +573,9 @@ static void draw(uint8_t quarter)
 
     /* Far to near: the back corners and edge, a stretch of the sides before
      * each line, then the nearest stretch and the front edge. */
-        project(-BOARD_X, BOARD_Z, 0, g.side);
-        project(BOARD_X, BOARD_Z, 0, g.side + 2);
-        line(g.side, g.side + 2, true);     /* back: dotted */
+        project(-BOARD_X, BOARD_Z, 0, side);
+        project(BOARD_X, BOARD_Z, 0, side + 2);
+        line(side, side + 2, true);         /* back: dotted */
         for (uint8_t i = 0; i <= LINES; i++) { /* oldest (far) to ACC (near) */
             uint8_t row = ACC, fl = acc_floor;
             if (i < LINES) {
@@ -519,7 +585,7 @@ static void draw(uint8_t quarter)
                 fl = S->floor[row];
             }
             const int32_t z = ((int32_t)(LINES - 1u) - 2 * i) * 4 + off;
-            frame_sides(z);
+            frame_sides(z, side);
             int32_t pt[BINS][2];
             bool lit[BINS];                 /* point above the noise gate */
             for (uint8_t b = 0; b < BINS; b++) {
@@ -571,24 +637,31 @@ static void draw(uint8_t quarter)
                 prev = y;
             }
         }
-    frame_sides(-BOARD_Z);
-    line(g.side, g.side + 2, false);        /* front */
+    frame_sides(-BOARD_Z, side);
+    line(side, side + 2, false);            /* front */
 
     /* 3x5 capsules over the landscape: the frequency (centre, or the station
      * listened to) left, the span right */
     *put_freq(buf, (int32_t)(g.listening ? g.peak_f : g.centre)) = '\0';
-    capsule(buf, 2);
-    capsule(g.label, (uint8_t)(W - 2u - SPAN_LABEL_LEN * 4u));
+    capsule(buf, 2, false);
+    capsule(g.label, (uint8_t)(W - 2u - SPAN_LABEL_LEN * 4u), false);
 
-    A->blit_full();
+    if (g.listening) {
+        /* the frame is complete: feed() sends it from its first page on */
+        swap(g.front, A->fb[0], PAGES * W);
+        g.page = 0;
+    } else {
+        A->blit_full();
+    }
 }
 
 /* ---- input --------------------------------------------------------------- */
 
+/* The plain `key ==` tests alternate with the bounded ones on purpose: GCC
+ * turns a run of plain tests into a jump table plus a libgcc helper, larger
+ * than the comparisons themselves. */
 static void key_press(uint8_t key)
 {
-    const int8_t yaw = g.yaw;
-    const uint8_t pitch = g.pitch;
     const int8_t nav = A->nav_dir(key);     /* UP/DOWN (UV-K1: LEFT/RIGHT) */
     const bool shifted = g.farm;
     g.farm = key == APP_KEY_F && !shifted;  /* F arms the next key */
@@ -597,32 +670,35 @@ static void key_press(uint8_t key)
         move_centre(nav > 0, g.step);       /* one point: the landscape slides */
     } else if (key == APP_KEY_1) {
         move_centre(!shifted, CENTRE_STEP);
-    } else if (key == APP_KEY_EXIT) {
-        g.running = false;
     } else if (key == APP_KEY_4 && g.yaw > -YAW_MAX) {
         g.yaw--;
+        view();                             /* the view turned */
+    } else if (key == APP_KEY_EXIT) {
+        g.running = false;
     } else if (key == APP_KEY_6 && g.yaw < YAW_MAX) {
         g.yaw++;
-    } else if (key == APP_KEY_2 && g.pitch < PITCH_MAX) {
-        g.pitch++;
-    } else if (key == APP_KEY_8 && g.pitch > PITCH_MIN) {
-        g.pitch--;
-    } else if (key == APP_KEY_5) {
-        g.yaw = 0;
-        g.pitch = PITCH_DEF;
+        view();
     } else if (key == APP_KEY_0) {
         g.listen = !g.listen;
+    } else if (key == APP_KEY_2 && g.pitch < PITCH_MAX) {
+        g.pitch++;
+        view();                             /* the view tilted */
     } else if (key == APP_KEY_MENU) {
         g.hold = !g.hold;
+    } else if (key == APP_KEY_8 && g.pitch > PITCH_MIN) {
+        g.pitch--;
+        view();
     } else if (key == APP_KEY_STAR) {
         g.speed = (uint8_t)(g.speed + 1u < SPEED_COUNT ? g.speed + 1u : 0u);
         g.sweeps = 0;                       /* keeps the scroll within one spacing */
     } else if (key == APP_KEY_3 && (uint8_t)(g.span + dir) < SPAN_COUNT) {
         g.span = (uint8_t)(g.span + dir);
         restart();                          /* keeps the centre */
+    } else if (key == APP_KEY_5) {
+        g.yaw = 0;
+        g.pitch = PITCH_DEF;
+        view();
     }
-    if (g.yaw != yaw || g.pitch != pitch)
-        view();                             /* the view turned or tilted */
 }
 
 static void poll_keys(void)
@@ -648,7 +724,9 @@ static void poll_keys(void)
 
 /* Last frequency from f, going up or down, whose level stays at or above
  * `level`: whole REFINE_STEPs while it holds (at most REFINE_REACH), then
- * halving steps down to REFINE_MIN to place the edge. */
+ * halving steps down to REFINE_MIN to place the edge. Not inlined: GCC put
+ * a copy of the loop at each of its two calls. */
+__attribute__((noinline))
 static uint32_t edge(uint32_t f, uint8_t level, bool up)
 {
     uint32_t d = REFINE_STEP;
@@ -720,9 +798,10 @@ static void start_listen(void)
     const uint8_t *ref = S->line[g.sweeps ? ACC : (g.head ? g.head - 1u : LINES - 1u)];
     const uint8_t lit = (uint8_t)(g.gate - SIGNAL_DB + NOISE_GATE);
     memset(g.shape, 0, sizeof(g.shape));
-    g.shape[SHAPE_R] = ref[g.peak_bin];
+    /* k = 0 is the peak itself, which stands above the gate in ref (the
+       sweep peak-held it there): both directions keep it */
     for (int8_t dir = -1; dir <= 1; dir += 2)
-        for (uint8_t k = 1; k <= SHAPE_R; k++) {
+        for (uint8_t k = 0; k <= SHAPE_R; k++) {
             const uint8_t b = (uint8_t)(g.peak_bin + dir * (int8_t)k);
             if (b >= BINS || ref[b] <= lit)
                 break;                      /* off the station (or the sweep) */
@@ -738,20 +817,24 @@ static void start_listen(void)
     g.close_lvl = (uint8_t)(g.close_db + g.gate - SIGNAL_DB);
     g.quiet = 0;
     g.listening = true;
-    A->set_agc(true);
-    A->bk_write(REG_CTRL, g.scan_ctrl | CTRL_AF_DAC);
-    A->audio_path(true);
-    A->delay_ms(AUDIO_SETTLE_MS);
-    A->set_af(APP_AF_FM);
+    const app_api_t *const a = A;           /* one load for the calls below */
+    /* feed() starts from the frame on screen, left complete by the sweep */
+    swap(g.front, a->fb[0], PAGES * W);
+    a->set_agc(true);
+    a->bk_write(REG_CTRL, g.scan_ctrl | CTRL_AF_DAC);
+    a->audio_path(true);
+    a->delay_ms(AUDIO_SETTLE_MS);
+    a->set_af(APP_AF_FM);
 }
 
 static void stop_listen(void)
 {
-    A->set_af(APP_AF_MUTE);
-    A->audio_path(false);
+    const app_api_t *const a = A;           /* one load for all the calls */
+    a->set_af(APP_AF_MUTE);
+    a->audio_path(false);
     g.listening = false;
-    A->set_agc(false);                      /* back to the sweep's fixed gain */
-    A->bk_write(REG_RX_BW, g.scan_bw);
+    a->set_agc(false);                      /* back to the sweep's fixed gain */
+    a->bk_write(REG_RX_BW, g.scan_bw);
     park_start();                           /* also restores REG_30 without the AF DAC */
 }
 
@@ -759,24 +842,28 @@ __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
     state_t state;                          /* ~0.8 KiB of history, on the stack */
+    uint8_t front[PAGES * W];               /* 0.9 KiB: the frame feed() sends */
     A = api;
     S = &state;
+    g.front = front;
 
-    A->cfg_load(&g.magic, CFG_DEFAULT_LEN);
+    /* The setup calls go through the parameter, which stays in a register:
+       through A, each call would reload the table pointer first. */
+    api->cfg_load(&g.magic, CFG_DEFAULT_LEN);
     if (g.magic != CFG_MAGIC || g.span >= SPAN_COUNT || g.speed >= SPEED_COUNT ||
         (uint8_t)(g.yaw + YAW_MAX) > 2u * YAW_MAX ||
         (uint8_t)(g.pitch - PITCH_MIN) > PITCH_MAX - PITCH_MIN)
-        A->asset_read(CFG_DEFAULT, &g.magic, CFG_DEFAULT_LEN);
+        asset(CFG_DEFAULT, &g.magic, CFG_DEFAULT_LEN);
     g.running = true;                       /* the rest of g starts zeroed (.bss) */
     view();
-    g.prev_key = A->get_key();
-    A->backlight_on();
-    A->audio_path(false);
-    A->set_af(APP_AF_MUTE);
-    A->set_agc(false);                      /* fixed gain: no pumping by a strong signal */
-    g.saved_bw = A->bk_read(REG_RX_BW);
-    g.scan_ctrl = A->bk_read(REG_CTRL) & ~CTRL_AF_DAC;
-    g.centre = A->rx_freq();
+    g.prev_key = api->get_key();
+    api->backlight_on();
+    api->audio_path(false);
+    api->set_af(APP_AF_MUTE);
+    api->set_agc(false);                    /* fixed gain: no pumping by a strong signal */
+    g.saved_bw = api->bk_read(REG_RX_BW);
+    g.scan_ctrl = api->bk_read(REG_CTRL) & ~CTRL_AF_DAC;
+    g.centre = api->rx_freq();
     restart();
 
     while (g.running) {
@@ -793,16 +880,18 @@ void app_main(const app_api_t *api)
             continue;
         }
         if (g.listening) {
-            for (uint8_t q = 1u; q < 4u; q++) { /* in-between frames */
-                A->delay_ms(LISTEN_TICK_MS / 4u);
-                if (!g.saver)
-                    draw(q);
-            }
-            A->delay_ms(LISTEN_TICK_MS / 4u);
+            /* The in-between frames, back to back: no idle wait, so that the
+               display traffic stays an even flow (see feed()). The saver
+               cannot start before the next poll_keys(). */
+            for (uint8_t q = 1u; q < 4u; q++)
+                draw(q);
             poll_keys();
             /* Close only after the app's measured level stays below its
-               filter-adjusted threshold for the configured hang time. */
-            const uint8_t m = measure(0);
+               filter-adjusted threshold for the configured hang time. The
+               receiver stays parked: a plain RSSI read, with no settling to
+               wait for (on a noisy station, the glitch wait can spin up to
+               50 register reads, a burst on the BK4829 bus). */
+            const uint8_t m = measure(PARKED);
             g.quiet = m > g.close_lvl ? 0u : (uint8_t)(g.quiet + 1u);
             if (g.quiet >= LISTEN_HANG || !g.listen || g.hold || g.saver || g.abort_sweep) {
                 stop_listen();
