@@ -453,21 +453,34 @@ static void project(int32_t x, int32_t z, int32_t h, int32_t *p)
     p[1] = CENTRE_Y - (zr * g.ps * 4 + h * g.pc) * FOCAL_Y / (den << 10);
 }
 
-/* Solid or dotted line (every other step) between the points a and b, stepped
- * along its longer axis with the division already linked. */
+/* Solid or dotted Bresenham line between a and b. Integer error accumulation
+ * keeps diagonals regular without a division for every plotted pixel. */
 static void line(const int32_t *a, const int32_t *b, bool dotted)
 {
-    const int32_t dx = b[0] - a[0], dy = b[1] - a[1];
-    int32_t n = dx < 0 ? -dx : dx;
-    const int32_t m = dy < 0 ? -dy : dy;
-    if (m > n)
-        n = m;
-    if (!n)
-        n = 1;
-    for (int32_t i = 0; i <= n; i += 1 + dotted) {
-        const int32_t x = a[0] + dx * i / n;
-        if ((uint32_t)x < W)
-            plot((uint8_t)x, a[1] + dy * i / n);
+    int32_t x = a[0], y = a[1];
+    const int32_t x1 = b[0], y1 = b[1];
+    const int32_t dx = x1 > x ? x1 - x : x - x1;
+    const int32_t dy = y1 > y ? y - y1 : y1 - y;
+    const int32_t sx = x < x1 ? 1 : -1;
+    const int32_t sy = y < y1 ? 1 : -1;
+    int32_t error = dx + dy;
+    bool mark = true;
+
+    for (;;) {
+        if ((!dotted || mark) && (uint32_t)x < W)
+            plot((uint8_t)x, y);
+        if (x == x1 && y == y1)
+            break;
+        const int32_t twice = error * 2;
+        if (twice >= dy) {
+            error += dy;
+            x += sx;
+        }
+        if (twice <= dx) {
+            error += dx;
+            y += sy;
+        }
+        mark = !mark;
     }
 }
 
@@ -587,11 +600,31 @@ static void draw(uint8_t quarter)
             const int32_t z = ((int32_t)(LINES - 1u) - 2 * i) * 4 + off;
             frame_sides(z, side);
             int32_t pt[BINS][2];
-            bool lit[BINS];                 /* point above the noise gate */
+            bool lit[BINS];                 /* visually above the noise gate */
+            const uint8_t *const values = S->line[row];
             for (uint8_t b = 0; b < BINS; b++) {
-                const int32_t d = (int32_t)S->line[row][b] - fl - NOISE_GATE;
-                lit[b] = d > 0;
-                project(2 * b - 63, z, d > 0 ? HEIGHT_Q * d / (d + COMPRESS) : 0, pt[b]);
+                int32_t d = (int32_t)values[b] - fl - NOISE_GATE;
+                int32_t neighbour = 0;
+                if (b) {
+                    const int32_t left = (int32_t)values[b - 1u] - fl - NOISE_GATE;
+                    if (left > neighbour)
+                        neighbour = left;
+                }
+                if (b + 1u < BINS) {
+                    const int32_t right = (int32_t)values[b + 1u] - fl - NOISE_GATE;
+                    if (right > neighbour)
+                        neighbour = right;
+                }
+                /* Preserve the measured peak and give a one-bin-wide peak
+                   half-height shoulders. This is display-only: tuning and
+                   peak selection still use the untouched RSSI samples. */
+                neighbour >>= 1;
+                if (d < neighbour)
+                    d = neighbour;
+                if (d < 0)
+                    d = 0;
+                lit[b] = d != 0;
+                project(2 * b - 63, z, d ? HEIGHT_Q * d / (d + COMPRESS) : 0, pt[b]);
             }
             /* The line's top edge in every screen column it crosses, kept as
              * 2y + 1 on the noise and 2y on a signal: the minimum is the
@@ -607,14 +640,25 @@ static void draw(uint8_t quarter)
                     p0 = p1;
                     p1 = t;
                 }
-                for (int32_t x = p0[0] < 0 ? 0 : p0[0]; x <= p1[0] && x < (int32_t)W; x++) {
-                    /* the segment's first column is p0 itself: no division there,
-                       and a vertical step (p1[0] == p0[0]) has no other column */
-                    const int32_t y = x == p0[0] ? p0[1]
-                                    : p0[1] + (p1[1] - p0[1]) * (x - p0[0]) / (p1[0] - p0[0]);
-                    const int32_t key = 2 * y + noise;
-                    if (key < top[x])
-                        top[x] = (int16_t)key;
+                const int32_t dx = p1[0] - p0[0];
+                const int32_t delta_y = p1[1] - p0[1];
+                const int32_t abs_y = delta_y < 0 ? -delta_y : delta_y;
+                const int32_t step_y = delta_y < 0 ? -1 : 1;
+                int32_t y = dx ? p0[1] : (p0[1] < p1[1] ? p0[1] : p1[1]);
+                int32_t error = 0;
+                for (int32_t x = p0[0]; x <= p1[0]; x++) {
+                    if ((uint32_t)x < W) {
+                        const int32_t key = 2 * y + noise;
+                        if (key < top[x])
+                            top[x] = (int16_t)key;
+                    }
+                    if (dx) {
+                        error += abs_y;
+                        while (error >= dx) {
+                            y += step_y;
+                            error -= dx;
+                        }
+                    }
                 }
             }
             /* Hide what lies below, then draw the edge and close steep slopes:
