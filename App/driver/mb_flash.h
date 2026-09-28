@@ -59,7 +59,9 @@
 #define MB_NAME_LEN         16
 #define MB_VERSION_LEN      16
 
-typedef struct __attribute__((packed)) {
+/* Natural word alignment avoids bytewise field accesses. The on-flash layout
+ * is pinned by the size/offset assertions in mb_flash.c. */
+typedef struct {
     uint32_t magic;                    /* MB_SLOT_MAGIC                    */
     uint16_t hdr_version;              /* MB_HDR_VERSION                   */
     uint16_t flags;                    /* MB_FLAG_COMMITTED, ...           */
@@ -171,7 +173,8 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
 #define MB_STATE_LEGACY_MAGIC   0x31504D46u     /* "FMP1" (single 8-byte record)    */
 #define MB_STATE_V2_MAGIC       0x32504D46u     /* "FMP2" (slot == config bank)     */
 #define MB_STATE_MAGIC          0x33504D46u     /* "FMP3" (slot + bank separated)   */
-typedef struct __attribute__((packed)) {
+/* Keep this record naturally aligned in RAM, with the same serialized bytes. */
+typedef struct {
     uint32_t magic;         /* MB_STATE_MAGIC                          */
     uint32_t generation;    /* monotonically increasing record version */
     uint32_t image_size;    /* expected internal image size            */
