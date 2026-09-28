@@ -1102,7 +1102,7 @@ void UI_DisplayMenu(void)
             {
                 const bool inverted = gSubMenuSelection >= 105;
                 const unsigned index = gSubMenuSelection - (inverted ? 105 : 1);
-                sprintf(String, inverted ? "D%03oI" : "D%03oN", DCS_Options[index]);
+                sprintf(String, inverted ? "D%03oI" : "D%03oN", DCS_GetOption(index));
             }
             break;
 

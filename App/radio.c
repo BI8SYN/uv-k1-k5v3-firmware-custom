@@ -298,7 +298,7 @@ void RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp) {
         case CODE_TYPE_CONTINUOUS_TONE:
         case CODE_TYPE_DIGITAL:
         case CODE_TYPE_REVERSE_DIGITAL:
-            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : ARRAY_SIZE(DCS_Options)) - 1))
+            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : DCS_OPTION_COUNT) - 1))
                 tmp = 0;
             break;
     }

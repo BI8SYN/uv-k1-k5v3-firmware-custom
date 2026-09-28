@@ -263,7 +263,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
         case MENU_T_DCS:
             //*pMin = 0;
             *pMax = 208;
-            //*pMax = (ARRAY_SIZE(DCS_Options) * 2);
+            //*pMax = (DCS_OPTION_COUNT * 2);
             break;
 
         case MENU_R_CTCS:

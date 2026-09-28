@@ -1363,7 +1363,7 @@ static void UI_PrintScanRangeCss(char *String, uint8_t LabelX, uint8_t ValueX, u
     {
         strcpy(String, "DCS");
         UI_PrintStringSmallNormalInverse(String, LabelX, 0, Line);
-        sprintf(String, "D%03o%c", DCS_Options[gScanRangeCssCode], gScanRangeCssType == CODE_TYPE_REVERSE_DIGITAL ? 'I' : 'N');
+        sprintf(String, "D%03o%c", DCS_GetOption(gScanRangeCssCode), gScanRangeCssType == CODE_TYPE_REVERSE_DIGITAL ? 'I' : 'N');
     }
 
     UI_PrintStringSmallNormal(String, ValueX, 0, Line);
@@ -2111,7 +2111,7 @@ void UI_DisplayMain(void)
 
             case 2:
             case 3:
-            sprintf(String, (int)pConfig->CodeType == 2 ? "%03oN" : "%03oI", DCS_Options[pConfig->Code]);
+            sprintf(String, (int)pConfig->CodeType == 2 ? "%03oN" : "%03oI", DCS_GetOption(pConfig->Code));
             break;
 
             default:
