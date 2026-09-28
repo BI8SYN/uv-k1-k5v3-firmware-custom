@@ -43,22 +43,6 @@ static void app_status_bar(void)
         gFrameBuffer[0][x] |= 0x08u;
 }
 
-/* Bottom key hints, matching the multiboot selector. */
-static void app_key_hints(void)
-{
-    const uint8_t sp = 6u;
-    const char *act_exit = "QUIT";
-    const uint8_t ae = (uint8_t)strlen(act_exit);
-    const uint8_t xm = 4u;
-    const uint8_t xe = (uint8_t)(124u - ae * 4u - sp - 16u);
-
-    GUI_DisplaySmallestInverse("MENU", xm, 6, false, true, (uint8_t)(xm + 16u));
-    GUI_DisplaySmallest("RUN", (uint8_t)(xm + 16u + sp), 49, false, true);
-
-    GUI_DisplaySmallestInverse("EXIT", xe, 6, false, true, (uint8_t)(xe + 16u));
-    GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
-}
-
 /* Fixed selection capsule around the primary information (the app name).
  * Slot number stays in the normal font; size is plain 3x5 metadata. */
 #define APP_NAME_BOX_START 19u
@@ -322,7 +306,7 @@ void APP_MenuOpen(void)
                 app_invert_name(fbLine);
         }
 
-        app_key_hints();
+        UI_DrawMenuKeyHints("RUN", "QUIT");
 
         ST7565_BlitStatusLine();
         ST7565_BlitFullScreen();

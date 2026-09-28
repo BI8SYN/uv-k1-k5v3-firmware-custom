@@ -98,7 +98,8 @@
 #define APP_CAP_FM            0x00000001u
 #define APP_CAP_BEAM          0x00000004u
 
-typedef struct __attribute__((packed)) {
+/* Aligned RAM objects; app_overlay.c pins every serialized field offset. */
+typedef struct {
     uint32_t magic;                    /* APP_MAGIC                              */
     uint16_t hdr_version;              /* APP_HDR_VERSION                        */
     uint8_t  abi_major;                /* required ABI family                    */

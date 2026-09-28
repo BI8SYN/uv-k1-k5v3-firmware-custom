@@ -55,7 +55,23 @@
 #include "settings.h"
 #include "misc.h"   /* dBmCorrTable */
 
-_Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
+_Static_assert(sizeof(app_header_t) == 64u && _Alignof(app_header_t) == 4u,
+               "app_header_t must stay 64 bytes with word alignment");
+_Static_assert(offsetof(app_header_t, magic) == 0u &&
+               offsetof(app_header_t, hdr_version) == 4u &&
+               offsetof(app_header_t, abi_major) == 6u &&
+               offsetof(app_header_t, api_min) == 7u &&
+               offsetof(app_header_t, code_size) == 8u &&
+               offsetof(app_header_t, code_crc32) == 12u &&
+               offsetof(app_header_t, entry_off) == 16u &&
+               offsetof(app_header_t, flags) == 18u &&
+               offsetof(app_header_t, name) == 20u &&
+               offsetof(app_header_t, version) == 36u &&
+               offsetof(app_header_t, link_vma) == 52u &&
+               offsetof(app_header_t, required_caps) == 56u &&
+               offsetof(app_header_t, asset_size) == 60u &&
+               offsetof(app_header_t, asset_crc) == 62u,
+               "FAP1 field offsets must match existing apps and host tools");
 _Static_assert(sizeof(app_api_t) <= UINT16_MAX, "app_api_t size field overflow");
 _Static_assert(APP_ASSET_OFFSET + APP_ASSET_MAX == APP_CODE_OFFSET,
                "assets must end where the code sector starts");
@@ -72,9 +88,32 @@ enum {
 #endif
 };
 
+/* Keep the small zero-initialized state together so callbacks can address it
+ * from one base. The nonzero RNG seed stays separate to keep this in .bss. */
+static struct {
+    uint16_t asset_size;
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
+    uint16_t beam_pending_channel;
+#endif
+    uint8_t run_slot;
+    uint8_t cfg_len;       /* staged length; 0 = nothing to commit */
+    bool allow_screen_saver;
+    bool screen_saver_wake;
+#ifdef ENABLE_FMRADIO
+    bool fm_dirty;
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
+    bool beam_dirty;
+    uint8_t beam_fsk_index;
+#endif
+    bool shortcuts_cached;
+    uint8_t shortcut_mask;
+    uint8_t shortcut_slots[4];
+    uint8_t slot_revision;
+    uint8_t cfg_buf[16];
+} app_state;
+
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
-static bool app_allow_screen_saver;
-static bool app_screen_saver_wake;
 
 static void app_backlight_on(void)
 {
@@ -84,7 +123,7 @@ static void app_backlight_on(void)
 
 static void app_backlight_update(void)
 {
-    APP_ModalBacklightTick(app_allow_screen_saver);
+    APP_ModalBacklightTick(app_state.allow_screen_saver);
 }
 
 static uint8_t app_get_key(void)
@@ -96,9 +135,9 @@ static uint8_t app_get_key(void)
 #endif
     const KEY_Code_t key = KEYBOARD_GetKey();
 
-    if (app_screen_saver_wake) {
+    if (app_state.screen_saver_wake) {
         if (key == KEY_INVALID)
-            app_screen_saver_wake = false;
+            app_state.screen_saver_wake = false;
         return APP_KEY_INVALID;
     }
 
@@ -117,7 +156,7 @@ static uint8_t app_get_key(void)
     if (key == KEY_PTT)
         return APP_KEY_PTT;
 
-    app_screen_saver_wake = true;
+    app_state.screen_saver_wake = true;
     return APP_KEY_WAKE;
 }
 
@@ -161,9 +200,6 @@ static void app_play_tone(uint16_t tone, uint16_t ms)
  * operations which depend on VFO_Info_t and the BK4819 driver. */
 static VFO_Info_t app_beam_vfo;
 static app_beam_channel_t app_beam_pending;
-static uint8_t app_beam_fsk_index;
-static uint16_t app_beam_pending_channel;
-static bool app_beam_dirty;
 
 static void app_beam_prepare(void)
 {
@@ -179,12 +215,7 @@ static void app_beam_prepare(void)
     RADIO_SetupRegisters(true);
     BK4819_SetupAircopy();
     BK4819_ResetFSK();
-    app_beam_fsk_index = 0;
-}
-
-static void app_beam_leave(void)
-{
-    BK4819_ResetFSK();
+    app_state.beam_fsk_index = 0;
 }
 
 /* Wire<->VFO fields that are a plain one-byte copy in BOTH directions.  Fields
@@ -269,7 +300,7 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
 
     /* Only one external-flash write can be deferred per app run.  Preserve the
        first successfully received channel if an older app tries to queue more. */
-    if (app_beam_dirty)
+    if (app_state.beam_dirty)
         return 0xFFFFu;
 
     uint16_t channel = MR_CHANNEL_FIRST;
@@ -282,8 +313,8 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
        sector-cache RAM.  Keep the pointer-free payload separate from the radio
        VFO: app_beam_prepare() may reuse that VFO before the app returns. */
     memcpy(&app_beam_pending, in, sizeof(app_beam_pending));
-    app_beam_pending_channel = channel;
-    app_beam_dirty = true;
+    app_state.beam_pending_channel = channel;
+    app_state.beam_dirty = true;
     return channel;
 }
 
@@ -291,11 +322,11 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
  * from the PY25Q16 sector cache. */
 static void app_beam_commit(void)
 {
-    if (!app_beam_dirty)
+    if (!app_state.beam_dirty)
         return;
-    app_beam_dirty = false;
+    app_state.beam_dirty = false;
 
-    const uint16_t channel = app_beam_pending_channel;
+    const uint16_t channel = app_state.beam_pending_channel;
 
     /* The overlay has returned, so the temporary radio VFO is now free to
        become the channel-save staging object. */
@@ -340,7 +371,7 @@ static void app_beam_send(uint16_t *packet)
 
 static void app_beam_rx(bool start)
 {
-    app_beam_fsk_index = 0;
+    app_state.beam_fsk_index = 0;
     if (start)
         BK4819_PrepareFSKReceive();
     else
@@ -357,20 +388,20 @@ static uint8_t app_beam_rx_poll(uint16_t *packet)
         const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
         if (irq & (BK4819_REG_02_FSK_FIFO_ALMOST_FULL | BK4819_REG_02_FSK_RX_FINISHED)) {
             const unsigned words = (irq & BK4819_REG_02_FSK_RX_FINISHED)
-                                 ? (app_beam_fsk_index < 36u ? 36u - app_beam_fsk_index : 0u)
+                                 ? (app_state.beam_fsk_index < 36u ? 36u - app_state.beam_fsk_index : 0u)
                                  : 4u;
             for (unsigned i = 0; i < words; i++) {
                 const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
-                if (app_beam_fsk_index < 36u)
-                    packet[app_beam_fsk_index++] = word;
+                if (app_state.beam_fsk_index < 36u)
+                    packet[app_state.beam_fsk_index++] = word;
             }
         }
     }
 
-    if (app_beam_fsk_index < 36u)
+    if (app_state.beam_fsk_index < 36u)
         return APP_BEAM_RX_WAIT;
 
-    app_beam_fsk_index = 0;
+    app_state.beam_fsk_index = 0;
     const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
     BK4819_PrepareFSKReceive();
     return (status & 0x0010u) ? APP_BEAM_RX_ERROR : APP_BEAM_RX_READY;
@@ -399,7 +430,6 @@ static void     app_set_af(uint8_t m)  { BK4819_SetAF((BK4819_AF_Type_t)m); }
 static void     app_audio_path(bool on){ if (on) AUDIO_AudioPathOn(); else AUDIO_AudioPathOff(); }
 static void     app_prepare_tone(void) { BK4819_PrepareToPlayTone(true); }
 static void     app_play_tone_raw(uint16_t hz, uint16_t ms) { BK4819_PlayToneRaw(hz, ms); }
-static void     app_tones_off_rx(void) { BK4819_TurnsOffTones_TurnsOnRX(); }
 static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
 
 /* ---- v2 config (deferred, flash-backed) ----
@@ -413,14 +443,11 @@ static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
  * slot starts from its own defaults. */
 #define APP_CFG_OFFSET  0x40u    /* config area within the header sector */
 #define APP_CFG_OWNER   0x50u    /* name of the app the config belongs to */
-static uint8_t app_cfg_buf[16];
-static uint8_t app_cfg_len;      /* staged length; 0 = nothing to commit */
-static uint8_t app_run_slot;     /* slot of the app currently running */
 
 static void app_cfg_load(uint8_t *buf, uint8_t len)
 {
-    if (len > sizeof(app_cfg_buf)) len = sizeof(app_cfg_buf);
-    const uint32_t base = APP_SLOT_BASE(app_run_slot);
+    if (len > sizeof(app_state.cfg_buf)) len = sizeof(app_state.cfg_buf);
+    const uint32_t base = APP_SLOT_BASE(app_state.run_slot);
     char name[APP_NAME_LEN], owner[APP_NAME_LEN];
     PY25Q16_ReadBuffer(base + offsetof(app_header_t, name), name, sizeof(name));
     PY25Q16_ReadBuffer(base + APP_CFG_OWNER, owner, sizeof(owner));
@@ -433,17 +460,16 @@ static void app_cfg_load(uint8_t *buf, uint8_t len)
 }
 static void app_cfg_save(const uint8_t *buf, uint8_t len)
 {
-    if (len > sizeof(app_cfg_buf)) len = sizeof(app_cfg_buf);
-    memcpy(app_cfg_buf, buf, len);
-    app_cfg_len = len;   /* mark dirty; the loader commits after the app returns */
+    if (len > sizeof(app_state.cfg_buf)) len = sizeof(app_state.cfg_buf);
+    memcpy(app_state.cfg_buf, buf, len);
+    app_state.cfg_len = len;   /* mark dirty; the loader commits after the app returns */
 }
 
-_Static_assert(APP_CFG_OFFSET + sizeof(app_cfg_buf) <= APP_CFG_OWNER &&
+_Static_assert(APP_CFG_OFFSET + sizeof(app_state.cfg_buf) <= APP_CFG_OWNER &&
                APP_CFG_OWNER + APP_NAME_LEN <= APP_ASSET_OFFSET,
                "config area overlaps its owner tag or the assets");
 
 /* ---- API level 2: time, randomness, read-only assets ---- */
-static uint16_t app_asset_size;   /* verified asset size of the running app */
 static uint32_t app_rng_state = 0x2545F491u;
 
 static uint32_t app_ticks_ms(void)
@@ -474,11 +500,11 @@ static void app_rng_mix(void)
 
 static uint16_t app_asset_read(uint16_t offset, void *buf, uint16_t len)
 {
-    if (offset >= app_asset_size)
+    if (offset >= app_state.asset_size)
         return 0;
-    if (len > app_asset_size - offset)
-        len = app_asset_size - offset;
-    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_run_slot) + APP_ASSET_OFFSET + offset, buf, len);
+    if (len > app_state.asset_size - offset)
+        len = app_state.asset_size - offset;
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_state.run_slot) + APP_ASSET_OFFSET + offset, buf, len);
     return len;
 }
 
@@ -509,7 +535,6 @@ static uint8_t app_tx_state(void)
     if (gTxVfo->Modulation != MODULATION_FM) return 1;
     return 0;
 }
-static void     app_tx_set_params(void)  { RADIO_SetTxParameters(); }
 static void     app_tx_tone(uint16_t hz) { BK4819_TransmitTone(false, hz); }
 static void     app_tx_mute(bool on)     { if (on) BK4819_EnterTxMute(); else BK4819_ExitTxMute(); }
 static void     app_tx_end(void)         { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false); RADIO_SetupRegisters(true); }
@@ -544,13 +569,8 @@ static void app_fm_exit(void)
     BK1080_Init0();
     BK4819_PickRXFilterPathBasedOnFrequency(gRxVfo->pRX->Frequency);   /* restore RX filter */
 }
-static void     app_fm_set_freq(uint16_t f, uint8_t b) { BK1080_SetFrequency(f, b); }
-static uint16_t app_fm_lo(uint8_t b)   { return BK1080_GetFreqLoLimit(b); }
-static uint16_t app_fm_hi(uint8_t b)   { return BK1080_GetFreqHiLimit(b); }
-static void     app_fm_mute(bool m)    { BK1080_Mute(m); }
 static int8_t   app_fm_valid(uint16_t f, uint16_t lo) { return (int8_t)FM_CheckFrequencyLock(f, lo); }
 
-static bool app_fm_dirty;   /* deferred: SETTINGS_SaveFM committed after the app returns */
 static void app_fm_state(app_fm_state_t *s, bool write)
 {
     if (write) {
@@ -567,48 +587,52 @@ static void app_fm_state(app_fm_state_t *s, bool write)
         s->sel_ch       = gEeprom.FM_SelectedChannel;
     }
 }
-static void app_fm_commit(void) { app_fm_dirty = true; }
+static void app_fm_commit(void) { app_state.fm_dirty = true; }
 #endif
 
-uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
+/* Internal callers discard the header on failure, so read directly into their
+ * aligned object without another 64-byte stack object and copy. */
+static uint8_t app_read_validated_header(uint8_t slot, app_header_t *h)
 {
     if (slot >= APP_SLOT_COUNT)
         return APP_ERR_SLOT;
 
-    app_header_t h;
-    PY25Q16_ReadBuffer(APP_SLOT_BASE(slot), &h, sizeof(h));
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(slot), h, sizeof(*h));
 
-    if (h.magic != APP_MAGIC)               return APP_ERR_MAGIC;
-    if (h.hdr_version != APP_HDR_VERSION)    return APP_ERR_MAGIC;
-    if (h.abi_major != APP_ABI_MAJOR || h.api_min == 0u ||
-        h.api_min > APP_API_LEVEL)           return APP_ERR_ABI;
-    if (!(h.flags & APP_FLAG_COMMITTED))     return APP_ERR_NOT_COMMITTED;
-    if (h.required_caps & ~APP_AVAILABLE_CAPS) return APP_ERR_CAP;
-    if (h.code_size < 2u || h.code_size > APP_OVERLAY_MAX ||
-        (uint32_t)h.entry_off > h.code_size - 2u ||   /* leave room for a 2-byte Thumb insn */
-        (h.entry_off & 1u) != 0u ||                   /* entry must be Thumb-aligned (even) */
-        h.asset_size > APP_ASSET_MAX)
+    if (h->magic != APP_MAGIC)               return APP_ERR_MAGIC;
+    if (h->hdr_version != APP_HDR_VERSION)    return APP_ERR_MAGIC;
+    if (h->abi_major != APP_ABI_MAJOR || h->api_min == 0u ||
+        h->api_min > APP_API_LEVEL)           return APP_ERR_ABI;
+    if (!(h->flags & APP_FLAG_COMMITTED))     return APP_ERR_NOT_COMMITTED;
+    if (h->required_caps & ~APP_AVAILABLE_CAPS) return APP_ERR_CAP;
+    if (h->code_size < 2u || h->code_size > APP_OVERLAY_MAX ||
+        (uint32_t)h->entry_off > h->code_size - 2u ||   /* leave room for a 2-byte Thumb insn */
+        (h->entry_off & 1u) != 0u ||                   /* entry must be Thumb-aligned (even) */
+        h->asset_size > APP_ASSET_MAX)
         return APP_ERR_SIZE;
 
-    if (out_header)
-        *out_header = h;
     return APP_OK;
 }
 
-static bool app_shortcuts_cached;
-static uint8_t app_shortcut_mask;
-static uint8_t app_shortcut_slots[4];
-static uint8_t app_slot_revision;
+uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
+{
+    app_header_t h;
+    const uint8_t rc = app_read_validated_header(slot, &h);
+    /* Preserve the public API: a failed validation leaves out_header intact. */
+    if (rc == APP_OK && out_header)
+        *out_header = h;
+    return rc;
+}
 
 uint8_t APP_SlotRevision(void)
 {
-    return app_slot_revision;
+    return app_state.slot_revision;
 }
 
 void APP_NotifySlotChanged(void)
 {
-    app_shortcuts_cached = false;
-    app_slot_revision++;
+    app_state.shortcuts_cached = false;
+    app_state.slot_revision++;
 }
 
 static int8_t app_shortcut_index(uint8_t shortcut)
@@ -622,35 +646,35 @@ static int8_t app_shortcut_index(uint8_t shortcut)
 
 static void app_cache_shortcuts(void)
 {
-    if (app_shortcuts_cached)
+    if (app_state.shortcuts_cached)
         return;
 
-    app_shortcut_mask = 0;
+    app_state.shortcut_mask = 0;
     const uint32_t overlay_vma = (uint32_t)PY25Q16_OverlayBuffer();
 
     for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
         app_header_t h;
-        if (APP_ValidateSlot(slot, &h) != APP_OK || h.link_vma != overlay_vma)
+        if (app_read_validated_header(slot, &h) != APP_OK || h.link_vma != overlay_vma)
             continue;
 
         const uint8_t shortcut = (uint8_t)((h.flags & APP_FLAG_SHORTCUT_MASK) >>
                                            APP_FLAG_SHORTCUT_SHIFT);
         const int8_t index = app_shortcut_index(shortcut);
         if (index >= 0) {
-            if (!(app_shortcut_mask & shortcut)) {
-                app_shortcut_mask |= shortcut;
-                app_shortcut_slots[index] = slot;
+            if (!(app_state.shortcut_mask & shortcut)) {
+                app_state.shortcut_mask |= shortcut;
+                app_state.shortcut_slots[index] = slot;
             }
         }
     }
 
-    app_shortcuts_cached = true;
+    app_state.shortcuts_cached = true;
 }
 
 uint8_t APP_OverlayShortcutMask(void)
 {
     app_cache_shortcuts();
-    return app_shortcut_mask;
+    return app_state.shortcut_mask;
 }
 
 uint8_t APP_LaunchOverlayShortcut(uint8_t shortcut)
@@ -660,8 +684,8 @@ uint8_t APP_LaunchOverlayShortcut(uint8_t shortcut)
         return APP_ERR_MAGIC;
 
     app_cache_shortcuts();
-    return (app_shortcut_mask & shortcut)
-         ? APP_LaunchOverlay(app_shortcut_slots[index])
+    return (app_state.shortcut_mask & shortcut)
+         ? APP_LaunchOverlay(app_state.shortcut_slots[index])
          : APP_ERR_MAGIC;
 }
 
@@ -669,11 +693,11 @@ uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header)
 {
     if (slot >= APP_SLOT_COUNT)
         return APP_ERR_SLOT;
-    app_header_t h;
-    PY25Q16_ReadBuffer(APP_SLOT_BASE(slot), &h, sizeof(h));
-    if (out_header)
-        *out_header = h;
-    return (h.magic == APP_MAGIC) ? APP_OK : APP_ERR_MAGIC;
+    app_header_t local;
+    app_header_t *h = out_header ? out_header : &local;
+    /* Slot info returns the raw header even when its magic is invalid. */
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(slot), h, sizeof(*h));
+    return (h->magic == APP_MAGIC) ? APP_OK : APP_ERR_MAGIC;
 }
 
 /* All services are immutable.  Keeping the table in flash avoids rebuilding a
@@ -713,7 +737,7 @@ static const app_api_t app_api = {
     .audio_path       = app_audio_path,
     .prepare_tone     = app_prepare_tone,
     .play_tone_raw    = app_play_tone_raw,
-    .tones_off_rx     = app_tones_off_rx,
+    .tones_off_rx     = BK4819_TurnsOffTones_TurnsOnRX,
     .rx_freq          = app_rx_freq,
     .cfg_load         = app_cfg_load,
     .cfg_save         = app_cfg_save,
@@ -724,7 +748,7 @@ static const app_api_t app_api = {
     .audio_scope      = UI_DisplayAudioScopeOverlay,
     .status_line      = gStatusLine,
     .tx_state         = app_tx_state,
-    .tx_set_params    = app_tx_set_params,
+    .tx_set_params    = RADIO_SetTxParameters,
     .tx_tone          = app_tx_tone,
     .tx_mute          = app_tx_mute,
     .tx_end           = app_tx_end,
@@ -735,10 +759,10 @@ static const app_api_t app_api = {
 #ifdef ENABLE_FMRADIO
     .fm_enter         = app_fm_enter,
     .fm_exit          = app_fm_exit,
-    .fm_set_freq      = app_fm_set_freq,
-    .fm_lo            = app_fm_lo,
-    .fm_hi            = app_fm_hi,
-    .fm_mute          = app_fm_mute,
+    .fm_set_freq      = BK1080_SetFrequency,
+    .fm_lo            = BK1080_GetFreqLoLimit,
+    .fm_hi            = BK1080_GetFreqHiLimit,
+    .fm_mute          = BK1080_Mute,
     .fm_valid         = app_fm_valid,
     .fm_channels      = gFM_Channels,
     .fm_state         = app_fm_state,
@@ -747,7 +771,7 @@ static const app_api_t app_api = {
     .nav_dir          = app_nav_dir,
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     .beam_prepare     = app_beam_prepare,
-    .beam_leave       = app_beam_leave,
+    .beam_leave       = BK4819_ResetFSK,
     .beam_get         = app_beam_get,
     .beam_save        = app_beam_save,
     .beam_send        = app_beam_send,
@@ -765,7 +789,7 @@ static const app_api_t app_api = {
 uint8_t APP_LaunchOverlay(uint8_t slot)
 {
     app_header_t h;
-    uint8_t rc = APP_ValidateSlot(slot, &h);
+    uint8_t rc = app_read_validated_header(slot, &h);
     if (rc != APP_OK)
         return rc;
 
@@ -811,19 +835,19 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     __DSB();
     __ISB();
 
-    app_run_slot   = slot;   /* for cfg_load / cfg_save / asset_read */
-    app_asset_size = h.asset_size;
-    app_cfg_len    = 0;
+    app_state.run_slot   = slot;   /* for cfg_load / cfg_save / asset_read */
+    app_state.asset_size = h.asset_size;
+    app_state.cfg_len    = 0;
     app_rng_mix();
 #ifdef ENABLE_FMRADIO
-    app_fm_dirty = false;
+    app_state.fm_dirty = false;
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
-    app_beam_dirty = false;
+    app_state.beam_dirty = false;
 #endif
 
-    app_allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
-    app_screen_saver_wake = false;
+    app_state.allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
+    app_state.screen_saver_wake = false;
     APP_ModalScreenSaverExit();
     BACKLIGHT_TurnOn();
 
@@ -854,8 +878,8 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     entry(&app_api);
 
     APP_ModalScreenSaverExit();
-    app_allow_screen_saver = false;
-    app_screen_saver_wake = false;
+    app_state.allow_screen_saver = false;
+    app_state.screen_saver_wake = false;
 
     /* Restore the resident RX/dual-watch tuning the app ran on top of. */
     gEeprom.RX_VFO = saved_rx_vfo;
@@ -873,16 +897,16 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     /* Commit any deferred config the app staged (RMW keeps the slot header),
      * tagged with the app's name. */
-    if (app_cfg_len) {
+    if (app_state.cfg_len) {
         const uint32_t base = APP_SLOT_BASE(slot);
-        PY25Q16_WriteBuffer(base + APP_CFG_OFFSET, app_cfg_buf, app_cfg_len, false);
+        PY25Q16_WriteBuffer(base + APP_CFG_OFFSET, app_state.cfg_buf, app_state.cfg_len, false);
         PY25Q16_WriteBuffer(base + APP_CFG_OWNER, h.name, APP_NAME_LEN, false);
         PY25Q16_InvalidateCache();
     }
 #ifdef ENABLE_FMRADIO
     /* Commit the FM config + 48 channels the app edited (shared with resident FM). */
-    if (app_fm_dirty) {
-        app_fm_dirty = false;
+    if (app_state.fm_dirty) {
+        app_state.fm_dirty = false;
         SETTINGS_SaveFM();
         PY25Q16_InvalidateCache();
     }
@@ -905,7 +929,7 @@ uint8_t APP_SlotErase(uint8_t slot)
     uint8_t *const owner = keep + (APP_CFG_OWNER - APP_CFG_OFFSET);
     app_header_t h;
     PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep));
-    if (*owner == 0xFFu && APP_ValidateSlot(slot, &h) == APP_OK)
+    if (*owner == 0xFFu && app_read_validated_header(slot, &h) == APP_OK)
         memcpy(owner, h.name, APP_NAME_LEN);
     for (uint32_t off = 0; off < APP_SLOT_STRIDE; off += APP_SECTOR_SIZE)
         PY25Q16_SectorErase(base + off);
@@ -926,7 +950,7 @@ uint8_t APP_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32
         return APP_ERR_SIZE;
     PY25Q16_WriteBuffer(APP_SLOT_BASE(slot) + offset, data, len, false);
     PY25Q16_InvalidateCache();
-    app_shortcuts_cached = false;
+    app_state.shortcuts_cached = false;
     return APP_OK;
 }
 
