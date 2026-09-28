@@ -1313,15 +1313,14 @@ static void UI_FormatFrequency(uint32_t freq, char *buffer) {
 static void UI_MAIN_DrawFullWatchPriorities(void)
 {
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
-        FUNCTION_IsRx() ||
         (gCurrentFunction != FUNCTION_FOREGROUND &&
          gCurrentFunction != FUNCTION_POWER_SAVE) ||
         gScanStateDir != SCAN_OFF ||
         gCssBackgroundScan)
         return;
 
-    const VFO_Info_t *vfos[2];
-    const uint8_t count = APP_GetFullWatchBackgroundVfos(vfos);
+    uint8_t count;
+    VFO_Info_t *const *vfos = APP_GetFullWatchBackgroundVfos(&count);
     if (count == 0)
         return;
 
@@ -1338,25 +1337,15 @@ static void UI_MAIN_DrawFullWatchPriorities(void)
         char text[5];
         if (IS_MR_CHANNEL(channel))
             sprintf(text, "%04u", channel + 1u);
-        else if (IS_FREQ_CHANNEL(channel))
-            sprintf(text, "F%u", channel - FREQ_CHANNEL_FIRST + 1u);
         else
-            sprintf(text, "N%u", channel - NOAA_CHANNEL_FIRST + 1u);
+        {
+            const bool isFrequency = IS_FREQ_CHANNEL(channel);
+            sprintf(text, isFrequency ? "F%u" : "N%u",
+                    channel - (isFrequency ? FREQ_CHANNEL_FIRST : NOAA_CHANNEL_FIRST) + 1u);
+        }
 
         const uint8_t x1 = count == 1 ? 79u : 64u + i * 23u;
-        const uint8_t x2 = x1 + 19u;
-        const uint8_t y1 = 24u;
-        const uint8_t y2 = y1 + 6u;
-
-        for (uint8_t x = x1 + 1u; x < x2; x++)
-        {
-            UI_DrawPixelBuffer(gFrameBuffer, x, y1, true);
-            UI_DrawPixelBuffer(gFrameBuffer, x, y2, true);
-        }
-        for (uint8_t x = x1; x <= x2; x++)
-            UI_DrawLineBuffer(gFrameBuffer, x, y1 + 1u, x, y2 - 1u, true);
-
-        GUI_DisplaySmallest(text, x1 + 2u, y1 + 1u, false, false);
+        GUI_DisplaySmallestInverse(text, x1 + 2u, 3, false, true, x1 + 19u);
     }
 }
 #endif

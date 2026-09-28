@@ -681,17 +681,19 @@ uint8_t ACTION_GetRxMode(void)
 
 void ACTION_SetRxMode(uint8_t mode)
 {
+    const uint8_t selected = gEeprom.TX_VFO + 1u;
+    bool crossBand;
     if (mode >= 4)
     {
         gEeprom.DUAL_WATCH = DUAL_WATCH_FULL;
-        gEeprom.CROSS_BAND_RX_TX = mode == 5
-            ? gEeprom.TX_VFO + 1
-            : CROSS_BAND_OFF;
-        return;
+        crossBand = mode == 5;
     }
-
-    gEeprom.DUAL_WATCH = (gEeprom.TX_VFO + 1) * (mode & 1);
-    gEeprom.CROSS_BAND_RX_TX = (gEeprom.TX_VFO + 1) * ((mode & 2) != 0);
+    else
+    {
+        gEeprom.DUAL_WATCH = selected * (mode & 1);
+        crossBand = (mode & 2) != 0;
+    }
+    gEeprom.CROSS_BAND_RX_TX = crossBand ? selected : CROSS_BAND_OFF;
 }
 #endif
 

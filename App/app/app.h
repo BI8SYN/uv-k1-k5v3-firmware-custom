@@ -36,7 +36,8 @@ void     APP_ModalBacklightTick(bool allowScreenSaver);
 void     APP_ModalScreenSaverExit(void);
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
 VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo);
-uint8_t APP_GetFullWatchBackgroundVfos(const VFO_Info_t **vfos);
+// Requires Full Watch mode; initializes the background VFOs on first access.
+VFO_Info_t *const *APP_GetFullWatchBackgroundVfos(uint8_t *count);
 #endif
 
 #endif

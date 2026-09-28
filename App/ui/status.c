@@ -246,17 +246,13 @@ void UI_DisplayStatus()
 
                     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) {
                         if (gDualWatchActive) {
+                            src = gFontDWR;
+                            sOff = xb ? 2 : 0;
+                            sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
                             if (gEeprom.DUAL_WATCH == DUAL_WATCH_FULL) {
                                 src = gFontFWR;
-                                sOff = xb ? 2 : 0;
-                                sSize = sizeof(gFontFWR) - (xb ? sizeof(gFontFWR[0]) : 0);
-                            } else {
-#endif
-                                src = gFontDWR;
-                                sOff = xb ? 2 : 0;
-                                sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
-#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+                                sSize -= xb;
                             }
 #endif
                         } else {

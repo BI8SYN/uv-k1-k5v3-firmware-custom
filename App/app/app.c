@@ -951,9 +951,7 @@ static VFO_Info_t *FullWatchLoadPriority(uint8_t priority, uint16_t channel, con
 
 static uint8_t FullWatchReplacementVfo(void)
 {
-    return gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF
-        ? gEeprom.TX_VFO
-        : (uint8_t)!gEeprom.TX_VFO;
+    return gEeprom.TX_VFO ^ (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF);
 }
 
 static void FullWatchInitialize(void)
@@ -1012,9 +1010,8 @@ static void FullWatchAlternate(void)
         return;
     }
 
-    const uint8_t background = gFullWatchBackgroundCount > 1
-        ? gFullWatchSequenceIndex >> 1
-        : 0;
+    // Only the four-slot cycle reaches background slot 1, at sequence index 3.
+    const uint8_t background = gFullWatchSequenceIndex == 3u;
     gEeprom.RX_VFO = replacementVfo;
     gRxVfo = gFullWatchBackgroundVfo[background];
     gFullWatchCurrentBackground = background;
@@ -1026,23 +1023,17 @@ VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo)
 
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
         vfo != replacementVfo ||
-        gFullWatchForegroundVfo == NULL ||
         gFullWatchForegroundVfo == &gEeprom.VfoInfo[replacementVfo])
         return NULL;
 
     return gFullWatchForegroundVfo;
 }
 
-uint8_t APP_GetFullWatchBackgroundVfos(const VFO_Info_t **vfos)
+VFO_Info_t *const *APP_GetFullWatchBackgroundVfos(uint8_t *count)
 {
-    if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL)
-        return 0;
-
     FullWatchInitialize();
-    for (uint8_t i = 0; i < gFullWatchBackgroundCount; i++)
-        vfos[i] = gFullWatchBackgroundVfo[i];
-
-    return gFullWatchBackgroundCount;
+    *count = gFullWatchBackgroundCount;
+    return gFullWatchBackgroundVfo;
 }
 
 static void FullWatchPromoteCurrentBackground(void)
