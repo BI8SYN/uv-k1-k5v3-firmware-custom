@@ -49,7 +49,11 @@ static void SETTINGS_LoadEepromDtmf(uint32_t addr, char *dest, size_t size, cons
     }
 }
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+void SETTINGS_InitEEPROM(bool preserve_display_mode)
+#else
 void SETTINGS_InitEEPROM(void)
+#endif
 {
     uint8_t Data[16] = {0};
 
@@ -85,10 +89,16 @@ void SETTINGS_InitEEPROM(void)
             // 3. Reset display inversion (SET_INV = 0)
             uint8_t displayByte[8] = {0};
             PY25Q16_ReadBuffer(0x00A158, displayByte, sizeof(displayByte));
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+            if (!preserve_display_mode || displayByte[5] == 0xFFu)
+            {
+#endif
+                displayByte[5] &= (uint8_t)~0x10;  // Clear bit 4 (SET_INV)
 
-            displayByte[5] &= (uint8_t)~0x10;  // Clear bit 4 (SET_INV)
-
-            PY25Q16_WriteBuffer(0x00A158, displayByte, sizeof(displayByte), false);
+                PY25Q16_WriteBuffer(0x00A158, displayByte, sizeof(displayByte), false);
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+            }
+#endif
 
             // 4. Reset logo lines (clear to null for strlen() == 0)
 

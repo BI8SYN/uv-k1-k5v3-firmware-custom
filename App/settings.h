@@ -321,7 +321,11 @@ typedef struct {
     PTT_ID_t         dtmfPttIdTxMode;
 } ChannelScanDisplayInfo_t;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+void     SETTINGS_InitEEPROM(bool preserve_display_mode);
+#else
 void     SETTINGS_InitEEPROM(void);
+#endif
 void     SETTINGS_LoadCalibration(void);
 uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel);
 bool     SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation);

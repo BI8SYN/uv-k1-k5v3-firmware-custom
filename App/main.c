@@ -108,7 +108,11 @@ void Main(void)
 
     BOARD_ADC_GetBatteryInfo(&gBatteryCurrentVoltage, &gBatteryCurrent);
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+    SETTINGS_InitEEPROM(false);
+#else
     SETTINGS_InitEEPROM();
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     RXTX_LOG_Init();

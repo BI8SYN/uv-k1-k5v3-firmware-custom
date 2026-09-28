@@ -38,6 +38,9 @@
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
 #include "ui/menu.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+#include "ui/multiboot.h"
+#endif
 #include "ui/ui.h"
 #include "ui/status.h"
 
@@ -97,7 +100,7 @@ void UI_DisplayStatus()
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     // The filter label reuses the leftmost slot (pixels 2..16) normally
-    // reserved by the power-save and scan indicators; those two are skipped
+    // reserved by the config-bank and scan indicators; those two are skipped
     // on the log screen so the rest of the bar keeps its usual layout.
     const bool isRxTxLogScreen = gScreenToDisplay == DISPLAY_RXTX_LOG;
     if (isRxTxLogScreen) {
@@ -129,9 +132,17 @@ void UI_DisplayStatus()
         if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
             memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
         }
-        // Power Save indicator
-        else if (gCurrentFunction == FUNCTION_POWER_SAVE) {
-            memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
+        else
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+        if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning())) {
+            const uint8_t bank = MB_GetActiveBank();
+
+            if (bank < ARRAY_SIZE(gFontConfigBank) - 1u) {
+                memcpy(line + x, gFontConfigBank[0], sizeof(gFontConfigBank[0]));
+                memcpy(line + x + sizeof(gFontConfigBank[0]),
+                       gFontConfigBank[bank + 1u], sizeof(gFontConfigBank[0]));
+            }
         }
 #else
         // Power Save indicator

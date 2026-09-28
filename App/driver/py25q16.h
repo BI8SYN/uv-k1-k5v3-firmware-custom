@@ -83,12 +83,11 @@ uint8_t *PY25Q16_OverlayBuffer(void);
  * and the firmware's direct config reads/writes (settings.c) end up here, so
  * one offset covers them all - no per-call-site patching.
  *
- * Set once at boot, before any settings read, from
+ * Set at boot, before any settings read, from
  *   PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
- * and never changed again during a session (a slot restore or SetCfg selection
- * records the next bank and resets first), so the banking itself never needs a
- * cache flush. Raw bank erases behind the driver explicitly call
- * PY25Q16_InvalidateCache().
+ * A hot SetCfg switch may change it later, but only after explicitly dropping
+ * the sector cache and before reloading all settings. Raw bank erases behind
+ * the driver also call PY25Q16_InvalidateCache().
  */
 #define PY25Q16_BANK_SHARED_FROM  0x00010000u   /* calibration boundary (see flash map) */
 void PY25Q16_SetBankBase(uint32_t Base);

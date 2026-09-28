@@ -20,6 +20,9 @@
     #include "py32f0xx.h"
 #endif
 #include "app/dtmf.h"
+#if defined(ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG) && defined(ENABLE_FMRADIO_EMBEDDED)
+    #include "app/fm.h"
+#endif
 #include "app/generic.h"
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
     #include "app/action.h"
@@ -38,6 +41,9 @@
     #include "ui/multiboot.h"
 #endif
 #include "frequencies.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+    #include "functions.h"
+#endif
 #include "helper/battery.h"
 #include "misc.h"
 #include "radio.h"
@@ -55,6 +61,60 @@ uint8_t gUnlockAllTxConfCnt;
 bool     gScanMixEditorActive;
 uint8_t  gScanMixEditorCursor;
 uint32_t gScanMixEditorMask;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+static void MENU_ApplyConfigBank(uint8_t bank)
+{
+    SCANNER_Stop();
+#ifdef ENABLE_FMRADIO_EMBEDDED
+    if (gFmRadioMode)
+        FM_TurnOff();
+#endif
+    FUNCTION_Select(FUNCTION_FOREGROUND);
+    AUDIO_AudioPathOff();
+    gEnableSpeaker = false;
+    gMonitor = false;
+    gRxReceptionMode = RX_MODE_NONE;
+    gDualWatchActive = false;
+    gScheduleDualWatch = true;
+    gDualWatchCountdown_10ms = 0;
+
+    /* No state originating in the old bank may be written after remapping. */
+    gRequestSaveSettings = false;
+    gRequestSaveVFO      = false;
+    gRequestSaveChannel  = 0;
+#ifdef ENABLE_FMRADIO_EMBEDDED
+    gRequestSaveFM = false;
+    gFlagSaveFM    = false;
+#endif
+
+    MB_ApplyBankMapping(bank);
+    SETTINGS_InitEEPROM(true);
+
+    /* These shadows preserve the configured RX mode while scan and Full Watch
+     * temporarily alter the live values. They must follow the new bank. */
+    gDW         = gEeprom.DUAL_WATCH;
+    gCB         = gEeprom.CROSS_BAND_RX_TX;
+    gSaveRxMode = false;
+
+    /* Cancel a temporary forced-backlight mode from the previous bank. */
+    gBackLight             = false;
+    gBacklightTimeOriginal = 0;
+    BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MAX);
+
+    /* Reapply the complete live LCD setup without a software reset. This also
+     * commits the new bank's inversion and contrast before the next redraw. */
+    ST7565_FixInterfGlitch();
+
+    UI_MENU_BuildView();
+    gVfoConfigureMode     = VFO_CONFIGURE_RELOAD;
+    gFlagResetVfos        = true;
+    gFlagReconfigureVfos  = false;
+    gRequestDisplayScreen = DISPLAY_MAIN;
+    gUpdateStatus         = true;
+    gUpdateDisplay        = true;
+}
+#endif
 
 static void MENU_OpenScanMixEditor(void)
 {
@@ -1880,9 +1940,9 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
                     else if (m == MENU_SET_CFG)
                     {
-                        /* Bind the chosen config bank, then reboot so it is mapped
-                         * before any settings are read. Confirming the current bank
-                         * is a no-op: do not wear a marker sector or reboot. */
+                        /* Persist the chosen config bank before applying it. With
+                         * hot switching disabled, the reset maps it at next boot.
+                         * Confirming the current bank remains a no-op. */
                         if (gSubMenuSelection == MB_GetActiveBank())
                         {
                             gFlagAcceptSetting  = false;
@@ -1904,11 +1964,19 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
                             return;
                         }
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+                        MENU_ApplyConfigBank(gSubMenuSelection);
+                        gFlagAcceptSetting  = false;
+                        gIsInSubMenu        = false;
+                        gAskForConfirmation = 0;
+                        return;
+#else
                         #if defined(ENABLE_OVERLAY)
                             overlay_FLASH_RebootToBootloader();
                         #else
                             NVIC_SystemReset();
                         #endif
+#endif
                     }
 #endif
 

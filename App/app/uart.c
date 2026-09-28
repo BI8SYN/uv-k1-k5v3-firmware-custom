@@ -554,7 +554,11 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
         }
 
         if (bReloadEeprom)
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+            SETTINGS_InitEEPROM(false);
+#else
             SETTINGS_InitEEPROM();
+#endif
     }
 
     SendReply(Port, &Reply, sizeof(Reply));

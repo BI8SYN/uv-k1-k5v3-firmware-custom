@@ -20,6 +20,9 @@
 #include "driver/gpio.h"
 #include "driver/keyboard.h"
 #include "driver/mb_flash.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+#include "driver/py25q16.h"
+#endif
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "ui/helper.h"
@@ -56,6 +59,17 @@ uint8_t MB_GetActiveBank(void)
 {
     return gActiveBank;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+void MB_ApplyBankMapping(uint8_t bank)
+{
+    /* A cached sector belongs to the old physical bank. Drop it before the
+     * logical addresses start resolving against the new base. */
+    PY25Q16_InvalidateCache();
+    PY25Q16_SetBankBase(MB_BankBase(bank));
+    gActiveBank = bank;
+}
+#endif
 
 static const char *mb_error_text(uint8_t err)
 {

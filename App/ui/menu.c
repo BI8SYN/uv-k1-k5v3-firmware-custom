@@ -173,7 +173,7 @@ const t_menu_item MenuList[] =
     {"SetSav",      MENU_SET_SAV       },
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
-    {"SetCfg",      MENU_SET_CFG       }, // load another settings bank (reboots)
+    {"SetCfg",      MENU_SET_CFG       }, // load another settings bank
 #endif
 #endif
     // hidden menu items from here on

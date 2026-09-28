@@ -215,11 +215,10 @@ uint8_t MB_SetActiveSlot(uint8_t slot);
  * Unlike MB_SetActiveSlot (which records that slot's image as the
  * expected identity, for the imminent reflash to that slot), this preserves the
  * running firmware's identity taken from the current marker and changes only the
- * config bank. The next boot therefore maps a different bank with no
- * reflash and is never mistaken for an out-of-multiboot firmware change (which
- * would self-backup + reset to bank 0). Requires a currently valid marker -
- * what every normal boot leaves behind - else MB_ERR_SPI / MB_ERR_MAGIC. The
- * caller resets the MCU afterwards; the new bank takes effect at the next boot. */
+ * config bank. It is therefore never mistaken for an out-of-multiboot firmware
+ * change (which would self-backup + reset to bank 0). Requires a currently valid
+ * marker - what every normal boot leaves behind - else MB_ERR_SPI / MB_ERR_MAGIC.
+ * The caller either resets the MCU or remaps the bank and reloads every setting. */
 uint8_t MB_SetActiveBank(uint8_t bank);
 
 /* Erase a whole config bank (host "Reset config" for a user slot):

@@ -4,7 +4,11 @@
 
 #include <stdint.h>
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+extern const uint8_t gFontConfigBank[6][6];
+#else
 extern const uint8_t gFontPowerSave[2][6];
+#endif
 extern const uint8_t gFontPttOnePush[2][6];
 extern const uint8_t gFontPttClassic[2][6];
 extern const uint8_t gFontF[9];
