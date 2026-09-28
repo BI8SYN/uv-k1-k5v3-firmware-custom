@@ -63,6 +63,9 @@ uint8_t  gScanMixEditorCursor;
 uint32_t gScanMixEditorMask;
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+// Keep the confirmation key routed to the menu until its release is consumed.
+static bool gConfigBankExitPending;
+
 static void MENU_ApplyConfigBank(uint8_t bank)
 {
     SCANNER_Stop();
@@ -110,7 +113,7 @@ static void MENU_ApplyConfigBank(uint8_t bank)
     gVfoConfigureMode     = VFO_CONFIGURE_RELOAD;
     gFlagResetVfos        = true;
     gFlagReconfigureVfos  = false;
-    gRequestDisplayScreen = DISPLAY_MAIN;
+    gConfigBankExitPending = true;
     gUpdateStatus         = true;
     gUpdateDisplay        = true;
 }
@@ -1769,6 +1772,18 @@ Skip:
 
 static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 {
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+    if (gConfigBankExitPending)
+    {
+        if (!bKeyPressed)
+        {
+            gConfigBankExitPending = false;
+            gRequestDisplayScreen  = DISPLAY_MAIN;
+        }
+        return;
+    }
+#endif
+
     if (gScanMixEditorActive)
     {
         if (!bKeyPressed || bKeyHeld)
