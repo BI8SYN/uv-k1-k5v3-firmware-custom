@@ -1023,6 +1023,7 @@ void UI_DisplayMenu(void)
     top_right_badge[0] = '\0';
 
     bool already_printed = false;
+    const char *const *choiceTable;
 
     /* Brightness is set to max in some entries of this menu. Return it to the configured brightness
        level the "next" time we enter here.I.e., when we move from one menu to another.
@@ -1075,24 +1076,34 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_TXP:
-            if(gSubMenuSelection == 0)
+#ifdef ENABLE_FEAT_F4HWN
+        case MENU_SET_PWR:
+#endif
+        {
+            int32_t power = gSubMenuSelection;
+#ifdef ENABLE_FEAT_F4HWN
+            if (m == MENU_SET_PWR)
+                power++;
+#endif
+            if (power == 0)
             {
-                strcpy(String, gSubMenu_TXP[gSubMenuSelection]);
+                choiceTable = gSubMenu_TXP;
+                goto copy_menu_choice;
             }
-            else
-            {
-                sprintf(String, "%s\n%sW", gSubMenu_TXP[gSubMenuSelection], gSubMenu_SET_PWR[gSubMenuSelection - 1]);
-            }
+            sprintf(String, "%s\n%sW", gSubMenu_TXP[power], gSubMenu_SET_PWR[power - 1]);
             break;
+        }
 
         case MENU_R_DCS:
         case MENU_T_DCS:
             if (gSubMenuSelection == 0)
                 strcpy(String, gSubMenu_OFF_ON[0]);
-            else if (gSubMenuSelection < 105)
-                sprintf(String, "D%03oN", DCS_Options[gSubMenuSelection -   1]);
             else
-                sprintf(String, "D%03oI", DCS_Options[gSubMenuSelection - 105]);
+            {
+                const bool inverted = gSubMenuSelection >= 105;
+                const unsigned index = gSubMenuSelection - (inverted ? 105 : 1);
+                sprintf(String, inverted ? "D%03oI" : "D%03oN", DCS_Options[index]);
+            }
             break;
 
         case MENU_R_CTCS:
@@ -1106,8 +1117,8 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_SFT_D:
-            strcpy(String, gSubMenu_SFT_D[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SFT_D;
+            goto copy_menu_choice;
 
         case MENU_OFFSET:
             if (!gIsInSubMenu || gInputBoxIndex == 0)
@@ -1127,8 +1138,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_W_N:
-            strcpy(String, gSubMenu_W_N[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_W_N;
+            goto copy_menu_choice;
 
 #ifndef ENABLE_FEAT_F4HWN
         case MENU_SCR:
@@ -1151,29 +1162,38 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_ABR:
-            if(gSubMenuSelection == 0)
+        case MENU_AUTOLK:
+        case MENU_TOT:
+        {
+            if (m != MENU_TOT && gSubMenuSelection == 0)
             {
                 strcpy(String, gSubMenu_OFF_ON[0]);
+                break;
             }
-            else if(gSubMenuSelection < 61)
-            {
-                sprintf(String, "%02dm:%02ds", (((gSubMenuSelection) * 5) / 60), (((gSubMenuSelection) * 5) % 60));
-                //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-                //ST7565_Gauge(4, 1, 60, gSubMenuSelection);
-                gaugeLine = 4;
-                gaugeMin = 1;
-                gaugeMax = 60;
-                //#endif
-            }
-            else
+            if (m == MENU_ABR && gSubMenuSelection >= 61)
             {
                 strcpy(String, "ON");
+                break;
             }
 
-            // Obsolete ???
-            //if(BACKLIGHT_GetBrightness() < 4)
-            //    BACKLIGHT_SetBrightness(4);
+            int32_t seconds = gSubMenuSelection * 5;
+            gaugeLine = 4;
+            gaugeMin = 1;
+            gaugeMax = 60;
+            if (m == MENU_AUTOLK)
+            {
+                seconds *= 3;
+                gaugeMax = 40;
+            }
+            else if (m == MENU_TOT)
+            {
+                seconds += 5;
+                gaugeMin = 5;
+                gaugeMax = 179;
+            }
+            sprintf(String, "%02dm:%02ds", seconds / 60, seconds % 60);
             break;
+        }
 
         case MENU_ABR_MIN:
         case MENU_ABR_MAX:
@@ -1189,25 +1209,10 @@ void UI_DisplayMenu(void)
             strcpy(String, gModulationStr[gSubMenuSelection]);
             break;
 
-        case MENU_AUTOLK:
-            if (gSubMenuSelection == 0)
-                strcpy(String, gSubMenu_OFF_ON[0]);
-            else
-            {
-                sprintf(String, "%02dm:%02ds", ((gSubMenuSelection * 15) / 60), ((gSubMenuSelection * 15) % 60));
-                //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-                //ST7565_Gauge(4, 1, 40, gSubMenuSelection);
-                gaugeLine = 4;
-                gaugeMin = 1;
-                gaugeMax = 40;
-                //#endif
-            }
-            break;
-
         case MENU_COMPAND:
         case MENU_ABR_ON_TX_RX:
-            strcpy(String, gSubMenu_RX_TX[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_RX_TX;
+            goto copy_menu_choice;
 
         case MENU_BCL:
         case MENU_BEEP:
@@ -1233,13 +1238,13 @@ void UI_DisplayMenu(void)
         case MENU_SET_TMR:
         case MENU_S_PRI:
 #endif
-            strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_OFF_ON;
+            goto copy_menu_choice;
 
 #if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_LOGO_SAV)
         case MENU_SET_SAV:
-            strcpy(String, gSubMenu_SET_SAV[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_SAV;
+            goto copy_menu_choice;
 #endif
 
         case MENU_MEM_CH:
@@ -1339,18 +1344,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_TDR:
-            strcpy(String, gSubMenu_RXMode[gSubMenuSelection]);
-            break;
-
-        case MENU_TOT:
-            sprintf(String, "%02dm:%02ds", (((gSubMenuSelection + 1) * 5) / 60), (((gSubMenuSelection + 1) * 5) % 60));
-            //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-            //ST7565_Gauge(4, 5, 179, gSubMenuSelection);
-            gaugeLine = 4;
-            gaugeMin = 5;
-            gaugeMax = 179;
-            //#endif
-            break;
+            choiceTable = gSubMenu_RXMode;
+            goto copy_menu_choice;
 
         #ifdef ENABLE_VOICE
             case MENU_VOICE:
@@ -1386,8 +1381,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_MDF:
-            strcpy(String, gSubMenu_MDF[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_MDF;
+            goto copy_menu_choice;
 
         case MENU_RP_STE:
             sprintf(String, gSubMenuSelection == 0 ? gSubMenu_OFF_ON[0] : "%u*100ms", gSubMenuSelection);
@@ -1418,25 +1413,21 @@ void UI_DisplayMenu(void)
             break;
 #endif
         case MENU_UPCODE:
-            if (gEeprom.DTMF_UP_CODE[8] != '\0' && gEeprom.DTMF_UP_CODE[8] != 0xFF) {
-                sprintf(String, "%.8s\n%.8s", gEeprom.DTMF_UP_CODE, gEeprom.DTMF_UP_CODE + 8);
-            } else {
-                sprintf(String, "%.8s", gEeprom.DTMF_UP_CODE);
-            }
-            break;
-
         case MENU_DWCODE:
-            if (gEeprom.DTMF_DOWN_CODE[8] != '\0' && gEeprom.DTMF_DOWN_CODE[8] != 0xFF) {
-                sprintf(String, "%.8s\n%.8s", gEeprom.DTMF_DOWN_CODE, gEeprom.DTMF_DOWN_CODE + 8);
+        {
+            const char *code = m == MENU_UPCODE ? gEeprom.DTMF_UP_CODE : gEeprom.DTMF_DOWN_CODE;
+            if (code[8] != '\0' && code[8] != 0xFF) {
+                sprintf(String, "%.8s\n%.8s", code, code + 8);
             } else {
-                sprintf(String, "%.8s", gEeprom.DTMF_DOWN_CODE);
+                sprintf(String, "%.8s", code);
             }
             break;
+        }
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_RSP:
-            strcpy(String, gSubMenu_D_RSP[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_D_RSP;
+            goto copy_menu_choice;
 
         case MENU_D_HOLD:
             sprintf(String, "%ds", gSubMenuSelection);
@@ -1447,12 +1438,12 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_PTT_ID:
-            strcpy(String, gSubMenu_PTT_ID[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_PTT_ID;
+            goto copy_menu_choice;
 
         case MENU_BAT_TXT:
-            strcpy(String, gSubMenu_BAT_TXT[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_BAT_TXT;
+            goto copy_menu_choice;
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -1465,12 +1456,12 @@ void UI_DisplayMenu(void)
 #endif
 
         case MENU_PONMSG:
-            strcpy(String, gSubMenu_PONMSG[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_PONMSG;
+            goto copy_menu_choice;
 
         case MENU_ROGER:
-            strcpy(String, gSubMenu_ROGER[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_ROGER;
+            goto copy_menu_choice;
 
         case MENU_VOL: {
             // SysInf is paginated. Pages appear in this order, only when their
@@ -1601,8 +1592,8 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_RESET:
-            strcpy(String, gSubMenu_RESET[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_RESET;
+            goto copy_menu_choice;
 
         case MENU_F_LOCK:
 #ifdef ENABLE_FEAT_F4HWN
@@ -1638,12 +1629,12 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_BATTYP:
-            strcpy(String, gSubMenu_BATTYP[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_BATTYP;
+            goto copy_menu_choice;
 
         case MENU_SET_NAV:
-            strcpy(String, gSubMenu_SET_NAV[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_NAV;
+            goto copy_menu_choice;
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
         case MENU_SET_CFG:
@@ -1688,18 +1679,14 @@ void UI_DisplayMenu(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-        case MENU_SET_PWR:
-            sprintf(String, "%s\n%sW", gSubMenu_TXP[gSubMenuSelection + 1], gSubMenu_SET_PWR[gSubMenuSelection]);
-            break;
-    
         case MENU_SET_PTT:
-            strcpy(String, gSubMenu_SET_PTT[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_PTT;
+            goto copy_menu_choice;
 
         case MENU_SET_TOT:
         case MENU_SET_EOT:
-            strcpy(String, gSubMenu_SET_TOT[gSubMenuSelection]); // Same as SET_TOT
-            break;
+            choiceTable = gSubMenu_SET_TOT;
+            goto copy_menu_choice;
 
         case MENU_SET_CTR:
             #ifdef ENABLE_FEAT_F4HWN_CTR
@@ -1732,18 +1719,18 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_SET_LCK:
-            strcpy(String, gSubMenu_SET_LCK[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_LCK;
+            goto copy_menu_choice;
 
         case MENU_SET_MET:
         case MENU_SET_GUI:
-            strcpy(String, gSubMenu_SET_MET[gSubMenuSelection]); // Same as SET_MET
-            break;
+            choiceTable = gSubMenu_SET_MET;
+            goto copy_menu_choice;
 
         #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
             case MENU_SET_SCN:
-                strcpy(String, gSubMenu_SET_SCN[gSubMenuSelection]);
-                break;
+                choiceTable = gSubMenu_SET_SCN;
+                goto copy_menu_choice;
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
@@ -1765,8 +1752,8 @@ void UI_DisplayMenu(void)
 
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
             case MENU_SET_NFM:
-                strcpy(String, gSubMenu_SET_NFM[gSubMenuSelection]);
-                break;
+                choiceTable = gSubMenu_SET_NFM;
+                goto copy_menu_choice;
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_VOL
@@ -1797,6 +1784,9 @@ void UI_DisplayMenu(void)
         #endif
 #endif
 
+        copy_menu_choice:
+            strcpy(String, choiceTable[gSubMenuSelection]);
+            break;
     }
 
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
