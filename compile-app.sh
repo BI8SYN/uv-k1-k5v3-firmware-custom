@@ -23,6 +23,9 @@ APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 
 cd "$(dirname "$0")"
 
+# Prevent Git Bash/MSYS from rewriting container paths as Windows paths.
+export MSYS_NO_PATHCONV=1
+
 # --- discover apps (any App/apps/<name>/build.sh) ---
 ALL_APPS=()
 for d in "$APPS_DIR"/*/; do
