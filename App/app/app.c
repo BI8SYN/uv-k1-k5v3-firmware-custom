@@ -86,6 +86,10 @@
     #include "k5viewer.h"
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+static void FullWatchPromoteCurrentBackground(void);
+#endif
+
 static bool flagSaveVfo;
 static bool flagSaveSettings;
 static bool flagSaveChannel;
@@ -773,8 +777,6 @@ static void HandleFunction(void)
 
 void APP_StartListening(FUNCTION_Type_t function)
 {
-    const unsigned int vfo = gEeprom.RX_VFO;
-
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
     ScreenSaverExit();
 #endif
@@ -792,6 +794,11 @@ void APP_StartListening(FUNCTION_Type_t function)
     if (gFmRadioMode)
         BK1080_Init0();
 #endif
+
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    FullWatchPromoteCurrentBackground();
+#endif
+    const unsigned int vfo = gEeprom.RX_VFO;
 
     // clear the other vfo's rssi level (to hide the antenna symbol)
     gVFO_RSSI_bar_level[!vfo] = 0;
@@ -902,10 +909,172 @@ uint32_t APP_SetFrequencyByStep(VFO_Info_t *pInfo, int8_t direction)
     }
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+static VFO_Info_t gFullWatchPriorityVfo[2];
+static VFO_Info_t *gFullWatchForegroundVfo;
+static VFO_Info_t *gFullWatchBackgroundVfo[2];
+static uint8_t    gFullWatchCurrentBackground = 0xFFu;
+static uint8_t    gFullWatchBackgroundCount;
+static uint8_t    gFullWatchSequenceIndex = 0xFFu;
+
+static void FullWatchReset(void)
+{
+    gFullWatchForegroundVfo = NULL;
+    gFullWatchCurrentBackground = 0xFFu;
+    gFullWatchBackgroundCount = 0;
+    gFullWatchSequenceIndex = 0xFFu;
+}
+
+static VFO_Info_t *FullWatchLoadPriority(uint8_t priority, uint16_t channel, const ChannelAttributes_t *attributes)
+{
+    ChannelScanDisplayInfo_t info;
+    VFO_Info_t *vfo = &gFullWatchPriorityVfo[priority];
+
+    if (!SETTINGS_FetchChannelScanDisplayInfo(channel, &info))
+        return NULL;
+
+    RADIO_InitInfo(vfo, channel, info.rx.Frequency);
+    SETTINGS_ApplyChannelScanDisplayInfo(vfo, channel, &info);
+
+    vfo->SCANLIST_PARTICIPATION = attributes->scanlist;
+    vfo->Compander = attributes->compander;
+
+    if (!gSetting_350EN &&
+        vfo->pRX->Frequency >= 35000000 &&
+        vfo->pRX->Frequency < 40000000)
+        vfo->pRX->Frequency = 43300000;
+
+    SETTINGS_FetchChannelName(vfo->Name, channel);
+    RADIO_ConfigureSquelchAndOutputPower(vfo);
+    return vfo;
+}
+
+static uint8_t FullWatchReplacementVfo(void)
+{
+    return gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF
+        ? gEeprom.TX_VFO
+        : (uint8_t)!gEeprom.TX_VFO;
+}
+
+static void FullWatchInitialize(void)
+{
+    if (gFullWatchForegroundVfo != NULL)
+        return;
+
+    gFullWatchForegroundVfo = &gEeprom.VfoInfo[FullWatchReplacementVfo()];
+    gFullWatchBackgroundCount = 0;
+
+    for (uint8_t priority = 0; priority < 2; priority++)
+    {
+        const uint16_t channel = gEeprom.SCANLIST_PRIORITY_CH[priority];
+        if (!IS_MR_CHANNEL(channel))
+            continue;
+
+        const ChannelAttributes_t *attributes = MR_GetChannelAttributes(channel);
+        if (attributes == NULL ||
+            attributes->band > BAND7_470MHz ||
+            channel == gEeprom.VfoInfo[0].CHANNEL_SAVE ||
+            channel == gEeprom.VfoInfo[1].CHANNEL_SAVE ||
+            (priority == 1 && channel == gEeprom.SCANLIST_PRIORITY_CH[0]))
+            continue;
+
+        VFO_Info_t *vfo = FullWatchLoadPriority(priority, channel, attributes);
+        if (vfo != NULL)
+            gFullWatchBackgroundVfo[gFullWatchBackgroundCount++] = vfo;
+    }
+
+}
+
+static void FullWatchAlternate(void)
+{
+    FullWatchInitialize();
+    const uint8_t count = 2u + gFullWatchBackgroundCount;
+    const uint8_t vfoBIndex = gFullWatchBackgroundCount > 1 ? 2u : 1u;
+    const uint8_t replacementVfo = FullWatchReplacementVfo();
+
+    if (gFullWatchSequenceIndex >= count)
+    {
+        const bool onVfoB = gRxVfo == &gEeprom.VfoInfo[1] ||
+                            (gRxVfo == gFullWatchForegroundVfo && replacementVfo == 1);
+        gFullWatchSequenceIndex = onVfoB ? vfoBIndex : 0;
+    }
+
+    if (++gFullWatchSequenceIndex >= count)
+        gFullWatchSequenceIndex = 0;
+
+    if (gFullWatchSequenceIndex == 0 || gFullWatchSequenceIndex == vfoBIndex)
+    {
+        gEeprom.RX_VFO = gFullWatchSequenceIndex == 0 ? 0 : 1;
+        gRxVfo = gEeprom.RX_VFO == replacementVfo
+            ? gFullWatchForegroundVfo
+            : &gEeprom.VfoInfo[gEeprom.RX_VFO];
+        gFullWatchCurrentBackground = 0xFFu;
+        return;
+    }
+
+    const uint8_t background = gFullWatchBackgroundCount > 1
+        ? gFullWatchSequenceIndex >> 1
+        : 0;
+    gEeprom.RX_VFO = replacementVfo;
+    gRxVfo = gFullWatchBackgroundVfo[background];
+    gFullWatchCurrentBackground = background;
+}
+
+VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo)
+{
+    const uint8_t replacementVfo = FullWatchReplacementVfo();
+
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
+        vfo != replacementVfo ||
+        gFullWatchForegroundVfo == NULL ||
+        gFullWatchForegroundVfo == &gEeprom.VfoInfo[replacementVfo])
+        return NULL;
+
+    return gFullWatchForegroundVfo;
+}
+
+uint8_t APP_GetFullWatchBackgroundVfos(const VFO_Info_t **vfos)
+{
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL)
+        return 0;
+
+    FullWatchInitialize();
+    for (uint8_t i = 0; i < gFullWatchBackgroundCount; i++)
+        vfos[i] = gFullWatchBackgroundVfo[i];
+
+    return gFullWatchBackgroundCount;
+}
+
+static void FullWatchPromoteCurrentBackground(void)
+{
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
+        gFullWatchForegroundVfo == NULL ||
+        gRxReceptionMode == RX_MODE_NONE ||
+        gScanStateDir != SCAN_OFF ||
+        gCssBackgroundScan ||
+        gFullWatchCurrentBackground >= gFullWatchBackgroundCount)
+        return;
+
+    const uint8_t background = gFullWatchCurrentBackground;
+    VFO_Info_t *displaced = gFullWatchForegroundVfo;
+    gFullWatchForegroundVfo = gFullWatchBackgroundVfo[background];
+    gFullWatchBackgroundVfo[background] = displaced;
+    gFullWatchCurrentBackground = 0xFFu;
+    gEeprom.RX_VFO = FullWatchReplacementVfo();
+    gRxVfo = gFullWatchForegroundVfo;
+    gUpdateDisplay = true;
+    gUpdateStatus = true;
+}
+#endif
+
 static void DualwatchAlternate(void)
 {
     #ifdef ENABLE_NOAA
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        if (gIsNoaaMode && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL)
+#else
         if (gIsNoaaMode)
+#endif
         {
             if (!IS_NOAA_CHANNEL(gEeprom.ScreenChannel[0]) || !IS_NOAA_CHANNEL(gEeprom.ScreenChannel[1]))
                 gEeprom.RX_VFO = (gEeprom.RX_VFO + 1) & 1;
@@ -919,9 +1088,16 @@ static void DualwatchAlternate(void)
         }
         else
     #endif
-    {   // toggle between VFO's
-        gEeprom.RX_VFO = !gEeprom.RX_VFO;
-        gRxVfo         = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+    {
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        if (gEeprom.DUAL_WATCH == DUAL_WATCH_FULL)
+            FullWatchAlternate();
+        else
+#endif
+        {   // toggle between VFO's
+            gEeprom.RX_VFO = !gEeprom.RX_VFO;
+            gRxVfo         = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+        }
 
         if (!gDualWatchActive)
         {   // let the user see DW is active
@@ -933,7 +1109,13 @@ static void DualwatchAlternate(void)
     RADIO_SetupRegisters(false);
 
     #ifdef ENABLE_NOAA
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        gDualWatchCountdown_10ms = (gIsNoaaMode && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL)
+            ? dual_watch_count_noaa_10ms
+            : dual_watch_count_toggle_10ms;
+#else
         gDualWatchCountdown_10ms = gIsNoaaMode ? dual_watch_count_noaa_10ms : dual_watch_count_toggle_10ms;
+#endif
     #else
         gDualWatchCountdown_10ms = dual_watch_count_toggle_10ms;
     #endif
@@ -1384,7 +1566,7 @@ void APP_Update(void)
         && gDTMF_CallState == DTMF_CALL_STATE_NONE
 #endif
     ) {
-        DualwatchAlternate();    // toggle between the two VFO's
+        DualwatchAlternate();    // advance to the next watched slot
 
         if (gRxVfoIsActive && gScreenToDisplay == DISPLAY_MAIN) {
             GUI_SelectNextDisplay(DISPLAY_MAIN);
@@ -1457,7 +1639,7 @@ void APP_Update(void)
                 && !gBeamActive
 #endif
             )
-            {   // dual watch mode, toggle between the two VFO's
+            {   // dual watch mode, advance to the next watched slot
                 DualwatchAlternate();
                 goToSleep = false;
             }
@@ -1495,7 +1677,7 @@ void APP_Update(void)
         if (!gBeamActive)
 #endif
         {
-            // toggle between the two VFO's
+            // advance to the next watched slot
             DualwatchAlternate();
             gPowerSave_10ms   = power_save1_10ms;
             goToSleep = true;
@@ -2660,6 +2842,9 @@ Skip:
     }
 
     if (gFlagReconfigureVfos) {
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        FullWatchReset();
+#endif
         RADIO_SelectVfos();
 
 #ifdef ENABLE_NOAA

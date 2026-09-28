@@ -18,6 +18,9 @@ extern const uint8_t gFontMute[12];
 extern const uint8_t gFontXB[2][6];
 extern const uint8_t gFontMO[2][6];
 extern const uint8_t gFontDWR[3][6];
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+extern const uint8_t gFontFWR[3][6];
+#endif
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     extern const uint8_t gFontRO[2][6];
 #endif

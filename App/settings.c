@@ -170,7 +170,11 @@ void SETTINGS_InitEEPROM(void)
     gEeprom.CHANNEL_DISPLAY_MODE  = (Data[1] < 4) ? Data[1] : MDF_FREQUENCY;    // 4 instead of 3 - extra display mode
     gEeprom.CROSS_BAND_RX_TX      = (Data[2] < 3) ? Data[2] : CROSS_BAND_OFF;
     gEeprom.BATTERY_SAVE          = (Data[3] < 6) ? Data[3] : 4;
-    gEeprom.DUAL_WATCH            = (Data[4] < 3) ? Data[4] : DUAL_WATCH_CHAN_A;
+    #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        gEeprom.DUAL_WATCH        = (Data[4] <= DUAL_WATCH_FULL) ? Data[4] : DUAL_WATCH_CHAN_A;
+    #else
+        gEeprom.DUAL_WATCH        = (Data[4] < 3) ? Data[4] : DUAL_WATCH_CHAN_A;
+    #endif
     gEeprom.BACKLIGHT_TIME        = (Data[5] < 62) ? Data[5] : 12;
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         gEeprom.TAIL_TONE_ELIMINATION = Data[6] & 0x01;
@@ -721,6 +725,40 @@ bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDis
 
     return true;
 }
+
+#if defined(ENABLE_FEAT_F4HWN_FULL_WATCH) || defined(ENABLE_FEAT_F4HWN_SCAN_FASTER)
+void SETTINGS_ApplyChannelScanDisplayInfo(VFO_Info_t *vfo, uint16_t channel, const ChannelScanDisplayInfo_t *info)
+{
+    vfo->CHANNEL_SAVE = channel;
+    vfo->freq_config_RX = info->rx;
+    vfo->freq_config_TX = info->tx;
+    vfo->TX_OFFSET_FREQUENCY = info->offset;
+    vfo->StepFrequency = info->stepFrequency;
+    vfo->STEP_SETTING = info->stepSetting;
+    vfo->Modulation = info->modulation;
+    vfo->TX_OFFSET_FREQUENCY_DIRECTION = info->txOffsetFrequencyDirection;
+    vfo->OUTPUT_POWER = info->outputPower;
+    vfo->FrequencyReverse = info->frequencyReverse;
+    vfo->CHANNEL_BANDWIDTH = info->channelBandwidth;
+    vfo->BUSY_CHANNEL_LOCK = info->busyChannelLock;
+    vfo->TX_LOCK = info->txLock;
+#ifdef ENABLE_DTMF_CALLING
+    vfo->DTMF_DECODING_ENABLE = info->dtmfDecodingEnable;
+#endif
+    vfo->DTMF_PTT_ID_TX_MODE = info->dtmfPttIdTxMode;
+
+    if (!vfo->FrequencyReverse)
+    {
+        vfo->pRX = &vfo->freq_config_RX;
+        vfo->pTX = &vfo->freq_config_TX;
+    }
+    else
+    {
+        vfo->pRX = &vfo->freq_config_TX;
+        vfo->pTX = &vfo->freq_config_RX;
+    }
+}
+#endif
 
 void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
 {

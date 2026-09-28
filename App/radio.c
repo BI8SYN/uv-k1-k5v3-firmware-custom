@@ -17,6 +17,9 @@
 #include "driver/bk4819-regs.h"
 #include <string.h>
 
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    #include "app/app.h"
+#endif
 #include "app/dtmf.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
@@ -1224,7 +1227,12 @@ void RADIO_PrepareTX(void)
         if (!gRxVfoIsActive)
         {   // use the current RX vfo
             gEeprom.RX_VFO = gEeprom.TX_VFO;
-            gRxVfo         = gTxVfo;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            VFO_Info_t *fullWatchVfo = APP_GetFullWatchDisplayVfo(gEeprom.TX_VFO);
+            gRxVfo = fullWatchVfo != NULL ? fullWatchVfo : gTxVfo;
+#else
+            gRxVfo = gTxVfo;
+#endif
             gRxVfoIsActive = true;
         }
 

@@ -21,6 +21,9 @@
 #endif
 #include "app/dtmf.h"
 #include "app/generic.h"
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    #include "app/action.h"
+#endif
 #include "app/menu.h"
 #include "app/scanner.h"
 #include "audio.h"
@@ -674,10 +677,16 @@ void MENU_AcceptSetting(void)
 
         case MENU_S_PRI_CH_1:
             gEeprom.SCANLIST_PRIORITY_CH[0] = gSubMenuSelection;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            gFlagReconfigureVfos = true;
+#endif
             break;
 
         case MENU_S_PRI_CH_2:
             gEeprom.SCANLIST_PRIORITY_CH[1] = gSubMenuSelection;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            gFlagReconfigureVfos = true;
+#endif
             break;
 
         case MENU_SAVE:
@@ -717,8 +726,12 @@ void MENU_AcceptSetting(void)
             break;
 
         case MENU_TDR:
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            ACTION_SetRxMode(gSubMenuSelection);
+#else
             gEeprom.DUAL_WATCH = (gEeprom.TX_VFO + 1) * (gSubMenuSelection & 1);
             gEeprom.CROSS_BAND_RX_TX = (gEeprom.TX_VFO + 1) * ((gSubMenuSelection & 2) > 0);
+#endif
 
             #ifdef ENABLE_FEAT_F4HWN
                 gDW = gEeprom.DUAL_WATCH;
@@ -1246,7 +1259,11 @@ void MENU_ShowCurrentSetting(void)
             break;
 
         case MENU_TDR:
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            gSubMenuSelection = ACTION_GetRxMode();
+#else
             gSubMenuSelection = (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) + (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF) * 2;
+#endif
             break;
 
         case MENU_BEEP:

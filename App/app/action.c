@@ -669,8 +669,38 @@ void ACTION_Update(void)
     gUpdateStatus        = true;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+uint8_t ACTION_GetRxMode(void)
+{
+    if (gEeprom.DUAL_WATCH == DUAL_WATCH_FULL)
+        return gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF ? 4 : 5;
+
+    return (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) +
+           (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF) * 2;
+}
+
+void ACTION_SetRxMode(uint8_t mode)
+{
+    if (mode >= 4)
+    {
+        gEeprom.DUAL_WATCH = DUAL_WATCH_FULL;
+        gEeprom.CROSS_BAND_RX_TX = mode == 5
+            ? gEeprom.TX_VFO + 1
+            : CROSS_BAND_OFF;
+        return;
+    }
+
+    gEeprom.DUAL_WATCH = (gEeprom.TX_VFO + 1) * (mode & 1);
+    gEeprom.CROSS_BAND_RX_TX = (gEeprom.TX_VFO + 1) * ((mode & 2) != 0);
+}
+#endif
+
 void ACTION_RxMode(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    uint8_t mode = ACTION_GetRxMode() + 1;
+    ACTION_SetRxMode(mode < 6 ? mode : 0);
+#else
     static bool cycle = 0;
 
     if (cycle) {
@@ -680,6 +710,8 @@ void ACTION_RxMode(void)
     }
 
     cycle = !cycle;
+#endif
+
     ACTION_Update();
 }
 

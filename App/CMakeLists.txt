@@ -198,6 +198,10 @@ if(NOT ENABLE_UART AND NOT ENABLE_USB)
 endif()
 
 enable_feature(ENABLE_FEAT_F4HWN)
+enable_feature(ENABLE_FEAT_F4HWN_FULL_WATCH)
+if(ENABLE_FEAT_F4HWN_FULL_WATCH AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_FULL_WATCH requires ENABLE_FEAT_F4HWN.")
+endif()
 # GAME keeps the F+7 hook; the resident breakout.c is compiled only when the
 # overlay does NOT provide Breakout as an app (that is the flash we recover).
 if(ENABLE_FEAT_F4HWN_GAME)

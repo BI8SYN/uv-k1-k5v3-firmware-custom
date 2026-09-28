@@ -245,10 +245,20 @@ void UI_DisplayStatus()
                     uint8_t xb = (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF);
 
                     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) {
-                        if (gDualWatchActive) { // DWR - dual watch + respond
-                            src = gFontDWR;
-                            sOff = xb ? 2 : 0;
-                            sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
+                        if (gDualWatchActive) {
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+                            if (gEeprom.DUAL_WATCH == DUAL_WATCH_FULL) {
+                                src = gFontFWR;
+                                sOff = xb ? 2 : 0;
+                                sSize = sizeof(gFontFWR) - (xb ? sizeof(gFontFWR[0]) : 0);
+                            } else {
+#endif
+                                src = gFontDWR;
+                                sOff = xb ? 2 : 0;
+                                sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+                            }
+#endif
                         } else {
                             src = gFontHold;
                             sOff = 3;
@@ -360,8 +370,8 @@ void UI_DisplayStatus()
         while ((text[n] = (char)(source[n] & 0xDFu)) != '\0')
             n++;
 
-        // Clear the width of the longest label so shorter ones leave no remnants.
-        memset(line, 0, 35u);
+        // Clear through the last pixel of the three-letter receiver-mode bitmap.
+        memset(line, 0, 36u);
         GUI_DisplaySmallestInverse(text, 2, 0, true, true, (uint8_t)(2u + n * 4u));
     }
 #endif
