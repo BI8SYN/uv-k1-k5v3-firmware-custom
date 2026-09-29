@@ -66,7 +66,7 @@ echo "🚀 Building overlay apps"
 printf '   VMA %s · budget %d B / %d.00 KiB · out %s/\n\n' \
     "$APP_VMA" "$OVERLAY_MAX" "$((OVERLAY_MAX / 1024))" "$OUT_DIR"
 
-files=(); sizes=(); vmas=(); states=()
+files=(); sizes=(); vmas=(); states=(); asset_sizes=()
 fail=0
 
 read_u32le() { od -An -tx1 -j"$2" -N4 "$1" | awk 'NF{printf "0x%s%s%s%s",$4,$3,$2,$1}'; }
@@ -89,12 +89,12 @@ for app in "${TARGETS[@]}"; do
             state="✅ OK"; [ "$code" -gt "$OVERLAY_MAX" ] && { state="🚨 OVERFLOW"; fail=1; }
             [ "$assets" -gt 0 ] && state="$state (+$assets B assets)"
         else
-            base="$app.app"; code=-1; vma="--"; state="❌ NO BLOB"; fail=1
+            base="$app.app"; code=-1; assets=0; vma="--"; state="❌ NO BLOB"; fail=1
         fi
     else
-        base="$app.app"; code=-1; vma="--"; state="❌ BUILD FAIL"; fail=1
+        base="$app.app"; code=-1; assets=0; vma="--"; state="❌ BUILD FAIL"; fail=1
     fi
-    files+=("$base"); sizes+=("$code"); vmas+=("$vma"); states+=("$state")
+    files+=("$base"); sizes+=("$code"); vmas+=("$vma"); states+=("$state"); asset_sizes+=("$assets")
 done
 
 # --- memory report (styled like the firmware Flash/RAM tables) ---
@@ -120,6 +120,34 @@ for i in "${!files[@]}"; do
             "${files[$i]}" "-" "-" "-" "-" "-" "${states[$i]}"
     fi
 done
+
+# --- totals row (only meaningful with more than one app) ---
+if [ "${#files[@]}" -gt 1 ]; then
+    tot_code=0; tot_free=0; tot_assets=0; built=0
+    for i in "${!files[@]}"; do
+        c=${sizes[$i]}
+        [ "$c" -ge 0 ] || continue
+        tot_code=$(( tot_code + c )); tot_free=$(( tot_free + OVERLAY_MAX - c ))
+        tot_assets=$(( tot_assets + ${asset_sizes[$i]} )); built=$(( built + 1 ))
+    done
+    printf '%-16s-+-%9s-+-%9s-+-%9s-+-%9s-+-%7s-+-%s\n' \
+        "----------------" "---------" "---------" "---------" "---------" "-------" "----------"
+    if [ "$built" -gt 0 ]; then
+        # Usage = average fill of the built apps (total code / built x budget).
+        bp=$(( (tot_code * 10000 + built * OVERLAY_MAX / 2) / (built * OVERLAY_MAX) ))
+        ck100=$(( (tot_code * 100 + 512) / 1024 ));  fk100=$(( (tot_free * 100 + 512) / 1024 ))
+        printf -v pct   '%d.%02d%%' "$((bp/100))" "$((bp%100))"
+        printf -v ckib  '%d.%02d'   "$((ck100/100))" "$((ck100%100))"
+        printf -v fkib  '%d.%02d'   "$((fk100/100))" "$((fk100%100))"
+        tstate="$built/${#files[@]} apps, avg usage"
+        [ "$tot_assets" -gt 0 ] && tstate="$tstate (+$tot_assets B assets)"
+        printf '%-16s | %9d | %9s | %9d | %9s | %7s | %s\n' \
+            "TOTAL" "$tot_code" "$ckib" "$tot_free" "$fkib" "$pct" "$tstate"
+    else
+        printf '%-16s | %9s | %9s | %9s | %9s | %7s | %s\n' \
+            "TOTAL" "-" "-" "-" "-" "-" "0/${#files[@]} apps"
+    fi
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then
