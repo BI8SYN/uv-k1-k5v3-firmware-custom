@@ -73,10 +73,12 @@ read_u32le() { od -An -tx1 -j"$2" -N4 "$1" | awk 'NF{printf "0x%s%s%s%s",$4,$3,$
 read_u16le() { od -An -tx1 -j"$2" -N2 "$1" | awk 'NF{printf "0x%s%s",$2,$1}'; }
 
 for app in "${TARGETS[@]}"; do
+    # Existing Windows clones may still contain CRLF app scripts even after
+    # .gitattributes is updated, so normalize the script before Bash reads it.
     if docker run --rm ${TTY_ARG:+"$TTY_ARG"} -u "$(id -u):$(id -g)" \
             -v "$PWD":/work -w "/work/$APPS_DIR/$app" \
             -e PATH="/opt/toolchain/bin:/usr/bin:/bin" -e APP_VMA="$APP_VMA" \
-            "$IMAGE" bash ./build.sh; then
+            "$IMAGE" bash -c "set -o pipefail; sed 's/\r$//' ./build.sh | bash"; then
         appfile=$(ls -1 "$APPS_DIR/$app"/*.app 2>/dev/null | head -1)
         if [ -n "$appfile" ] && [ -f "$appfile" ]; then
             cp -f "$appfile" "$OUT_DIR/"
