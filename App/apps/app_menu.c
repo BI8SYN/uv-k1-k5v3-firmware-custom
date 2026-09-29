@@ -337,6 +337,9 @@ void APP_MenuOpen(void)
                 if (rc != APP_OK)
                     app_show_error(&hdr, rc);               /* no longer silent */
                 app_wait_release();
+                /* Radio apps (BEAM, ...) hand back straight to the radio screen. */
+                if (rc == APP_OK && (hdr.flags & APP_FLAG_EXIT_TO_MAIN))
+                    return;
                 break;
             }
             default:

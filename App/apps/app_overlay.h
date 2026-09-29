@@ -83,6 +83,7 @@
 #define APP_HDR_VERSION   1u
 #define APP_FLAG_COMMITTED   0x0001u
 #define APP_FLAG_SCREEN_SAVER 0x0002u
+#define APP_FLAG_EXIT_TO_MAIN 0x0004u   /* leave the Apps menu when the app returns */
 #define APP_FLAG_SHORTCUT_SHIFT 8u
 #define APP_FLAG_SHORTCUT_MASK  0x0F00u
 #define APP_NAME_LEN      16
@@ -96,8 +97,13 @@
 /* Optional resident facilities an app may require.  Requirements live in the
  * previously reserved header bytes, so app_header_t remains 64 bytes. */
 #define APP_CAP_FM            0x00000001u
+/* Retired: the v6.0.0 BEAM bridge (resident FSK send/receive).  No longer
+ * advertised, so a v6.0.0 Beam.app is refused with APP_ERR_CAP. */
 #define APP_CAP_BEAM          0x00000004u
 #define APP_CAP_SYSINFO       0x00000008u
+/* BEAM channel bridge only (beam_prepare/get/save/draw); the app drives the
+ * FSK modem itself through bk_read/bk_write. */
+#define APP_CAP_BEAM2         0x00000010u
 
 /* Aligned RAM objects; app_overlay.c pins every serialized field offset. */
 typedef struct {

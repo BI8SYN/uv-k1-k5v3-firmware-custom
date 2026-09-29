@@ -87,7 +87,7 @@ enum {
                        | APP_CAP_FM
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
-                       | APP_CAP_BEAM
+                       | APP_CAP_BEAM2
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
                        | APP_CAP_SYSINFO
@@ -110,7 +110,6 @@ static struct {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     bool beam_dirty;
-    uint8_t beam_fsk_index;
 #endif
     bool shortcuts_cached;
     uint8_t shortcut_mask;
@@ -206,9 +205,10 @@ static void app_play_tone(uint16_t tone, uint16_t ms)
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
 /* ---- optional BEAM radio/channel bridge -----------------------------------
- * The modal app owns the packet format, CRC, UI and state machine.  Resident
- * code only translates the stable ABI channel structure and performs the FSK
- * operations which depend on VFO_Info_t and the BK4819 driver. */
+ * The modal app owns the packet format, CRC, UI, state machine and the FSK
+ * modem (plain BK4819 register sequences through bk_read/bk_write).  Resident
+ * code only tunes the fixed channel and translates the stable ABI channel
+ * structure, the parts which depend on VFO_Info_t. */
 static VFO_Info_t app_beam_vfo;
 static app_beam_channel_t app_beam_pending;
 
@@ -224,9 +224,6 @@ static void app_beam_prepare(void)
     gTxVfo = &app_beam_vfo;
     gCurrentVfo = &app_beam_vfo;
     RADIO_SetupRegisters(true);
-    BK4819_SetupAircopy();
-    BK4819_ResetFSK();
-    app_state.beam_fsk_index = 0;
 }
 
 /* Wire<->VFO fields that are a plain one-byte copy in BOTH directions.  Fields
@@ -366,56 +363,6 @@ static void app_beam_commit(void)
     RADIO_SelectVfos();
     RADIO_SetupRegisters(true);
     PY25Q16_InvalidateCache();
-}
-
-static void app_beam_send(uint16_t *packet)
-{
-    if (packet == NULL)
-        return;
-    RADIO_SetTxParameters();
-    BK4819_SendFSKData(packet, 36);   // overlay Beam uses a fixed 36-word frame
-    BK4819_SetupPowerAmplifier(0, 0);
-    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
-    RADIO_SelectVfos();
-    RADIO_SetupRegisters(true);
-}
-
-static void app_beam_rx(bool start)
-{
-    app_state.beam_fsk_index = 0;
-    if (start)
-        BK4819_PrepareFSKReceive();
-    else
-        BK4819_ResetFSK();
-}
-
-static uint8_t app_beam_rx_poll(uint16_t *packet)
-{
-    if (packet == NULL)
-        return APP_BEAM_RX_ERROR;
-
-    while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
-        BK4819_WriteRegister(BK4819_REG_02, 0);
-        const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
-        if (irq & (BK4819_REG_02_FSK_FIFO_ALMOST_FULL | BK4819_REG_02_FSK_RX_FINISHED)) {
-            const unsigned words = (irq & BK4819_REG_02_FSK_RX_FINISHED)
-                                 ? (app_state.beam_fsk_index < 36u ? 36u - app_state.beam_fsk_index : 0u)
-                                 : 4u;
-            for (unsigned i = 0; i < words; i++) {
-                const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
-                if (app_state.beam_fsk_index < 36u)
-                    packet[app_state.beam_fsk_index++] = word;
-            }
-        }
-    }
-
-    if (app_state.beam_fsk_index < 36u)
-        return APP_BEAM_RX_WAIT;
-
-    app_state.beam_fsk_index = 0;
-    const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
-    BK4819_PrepareFSKReceive();
-    return (status & 0x0010u) ? APP_BEAM_RX_ERROR : APP_BEAM_RX_READY;
 }
 
 static void app_beam_draw(const char *status)
@@ -782,12 +729,10 @@ static const app_api_t app_api = {
     .nav_dir          = app_nav_dir,
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     .beam_prepare     = app_beam_prepare,
-    .beam_leave       = BK4819_ResetFSK,
+    /* APP_CAP_BEAM2: beam_leave, beam_send, beam_rx and beam_rx_poll stay
+     * NULL, the app drives the FSK modem through bk_read/bk_write. */
     .beam_get         = app_beam_get,
     .beam_save        = app_beam_save,
-    .beam_send        = app_beam_send,
-    .beam_rx          = app_beam_rx,
-    .beam_rx_poll     = app_beam_rx_poll,
     .beam_draw        = app_beam_draw,
 #endif
     .ticks_ms         = app_ticks_ms,

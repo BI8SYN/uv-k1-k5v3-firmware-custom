@@ -223,7 +223,11 @@ typedef struct app_api {
      * Returns 0 for any other key. Keep get_key() raw for spatial controls. */
     int8_t (*nav_dir)(uint8_t key);
 
-    /* ---- BEAM channel transfer (optional resident capability APP_CAP_BEAM) ---- */
+    /* ---- BEAM channel transfer ----
+     * APP_CAP_BEAM (v6.0.0, retired): every service below, FSK included.
+     * APP_CAP_BEAM2: only beam_prepare (tunes the channel, no FSK setup),
+     * beam_get, beam_save and beam_draw; the app drives the FSK modem through
+     * bk_read/bk_write, and beam_leave/send/rx/rx_poll are NULL. */
     void     (*beam_prepare)(void); /* tune the fixed narrow-band FSK channel */
     void     (*beam_leave)(void); /* defensively stop FSK before app return */
     void     (*beam_get)(app_beam_channel_t *channel); /* export selected VFO */

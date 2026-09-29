@@ -4,6 +4,10 @@
  * BEAM overlay app.  Packet version 2 remains wire-compatible with the
  * resident implementation: one selected VFO is sent and a received VFO is
  * stored in the first free memory channel.
+ *
+ * Requires APP_CAP_BEAM2: the resident bridge only tunes the channel and
+ * converts it to/from app_beam_channel_t; this app drives the BK4819 FSK modem
+ * itself, from register sequences stored in its assets.
  */
 
 #include <stdint.h>
@@ -18,6 +22,22 @@
 #define PACKET_END     0xDCBAu
 #define PACKET_WORDS   36u
 #define STORE_WORDS    18u   /* 72 bytes, 4-byte aligned for the payload */
+
+/* BK4819 registers and REG_02 interrupt flags (mirror driver/bk4819-regs.h). */
+enum {
+    REG_02 = 0x02,              /* interrupt status          */
+    REG_0B = 0x0B,              /* FSK status: bit 4 = CRC error */
+    REG_0C = 0x0C,              /* bit 0 = interrupt pending */
+    REG_5F = 0x5F,              /* FSK data FIFO             */
+};
+#define IRQ_FSK_FIFO_ALMOST_FULL (1u << 12)
+#define IRQ_FSK_RX_FINISHED      (1u << 13)
+
+/* Largest register sequence (asset_read into a stack buffer). */
+#define SEQ_MAX_LEN SEQ_RX_LEN
+_Static_assert(SEQ_RESET_LEN <= SEQ_MAX_LEN && SEQ_SETUP_LEN <= SEQ_MAX_LEN &&
+               SEQ_TX_LOAD_LEN <= SEQ_MAX_LEN && SEQ_TX_GO_LEN <= SEQ_MAX_LEN &&
+               SEQ_TX_END_LEN <= SEQ_MAX_LEN, "SEQ_MAX_LEN too small");
 
 enum {
     STATUS_READY = 0,
@@ -45,6 +65,7 @@ _Static_assert(sizeof(beam_payload_t) == 48u,
  * overlay itself is zeroed by the loader at each launch. */
 struct globals {
     uint8_t mode, status;
+    uint8_t fsk_index;        /* next RX FIFO word of the packet */
     bool receiving, running, dirty;
     uint16_t copiedChannel;
     const app_api_t *api;
@@ -84,6 +105,67 @@ static void obfuscate(void)
         p[i + 1u] ^= key[i & 7u];
 }
 
+/* Run one register sequence: (register, value) word pairs, a SEQ_DELAY
+ * register meaning "wait value ms". */
+static void bk_seq(uint16_t offset, uint16_t len)
+{
+    uint16_t seq[SEQ_MAX_LEN / 2u];
+    A->asset_read(offset, seq, len);
+    for (const uint16_t *w = seq; w < seq + len / 2u; w += 2) {
+        if (w[0] == SEQ_DELAY)
+            A->delay_ms(w[1]);
+        else
+            A->bk_write((uint8_t)w[0], w[1]);
+    }
+}
+#define SEQ(name) bk_seq(name, name##_LEN)
+
+/* Key up, send one packet (BK4819_SendFSKData), then back to RX. */
+static void fsk_send(const uint16_t *p)
+{
+    A->tx_set_params();
+    SEQ(SEQ_TX_LOAD);
+    for (uint8_t i = 0; i < PACKET_WORDS; i++)
+        A->bk_write(REG_5F, p[i]);
+    SEQ(SEQ_TX_GO);
+    /* TX-finished poll ceiling in 5 ms ticks: ~3 per word plus margin. */
+    for (uint16_t t = PACKET_WORDS * 3u + 100u; t && !(A->bk_read(REG_0C) & 1u); t--)
+        A->delay_ms(5);
+    SEQ(SEQ_TX_END);
+    A->tx_end();
+}
+
+static void fsk_rx_start(void)
+{
+    g.fsk_index = 0;
+    SEQ(SEQ_RX);
+}
+
+/* Drain the RX FIFO into the packet; APP_BEAM_RX_* once complete. */
+static uint8_t fsk_rx_poll(uint16_t *p)
+{
+    while (A->bk_read(REG_0C) & 1u) {
+        A->bk_write(REG_02, 0);
+        const uint16_t irq = A->bk_read(REG_02);
+        if (irq & (IRQ_FSK_FIFO_ALMOST_FULL | IRQ_FSK_RX_FINISHED)) {
+            uint8_t words = (irq & IRQ_FSK_RX_FINISHED)
+                          ? (uint8_t)(PACKET_WORDS - g.fsk_index) : 4u;
+            while (words--) {
+                const uint16_t word = A->bk_read(REG_5F);
+                if (g.fsk_index < PACKET_WORDS)
+                    p[g.fsk_index++] = word;
+            }
+        }
+    }
+
+    if (g.fsk_index < PACKET_WORDS)
+        return APP_BEAM_RX_WAIT;
+
+    const uint16_t status = A->bk_read(REG_0B);
+    fsk_rx_start();
+    return (status & 0x0010u) ? APP_BEAM_RX_ERROR : APP_BEAM_RX_READY;
+}
+
 static void draw(void)
 {
     /* T_STATE: READY in TX / RX mode, then one entry per later status. */
@@ -98,7 +180,7 @@ static void draw(void)
 static void stop_rx(void)
 {
     if (g.receiving) {
-        A->beam_rx(false);
+        SEQ(SEQ_RESET);
         g.receiving = false;
     }
 }
@@ -117,7 +199,7 @@ static void send_packet(void)
 
     g.status = STATUS_TX_WAIT;
     draw();
-    A->beam_send(p);
+    fsk_send(p);
     g.status = STATUS_TX_DONE;
     for (uint8_t i = 0; i < 3u; i++) {
         A->play_tone(880, 60);
@@ -134,11 +216,12 @@ static void start(void)
     if (g.mode && g.copiedChannel != 0xFFFFu)
         return;
     A->beam_prepare();
+    SEQ(SEQ_SETUP);
     if (!g.mode) {
         send_packet();
         return;
     }
-    A->beam_rx(true);
+    fsk_rx_start();
     g.receiving = true;
     g.status = STATUS_RX_WAIT;
     g.dirty = true;
@@ -159,7 +242,7 @@ static void poll_rx(void)
 {
     if (!g.receiving)
         return;
-    const uint8_t result = A->beam_rx_poll(packet());
+    const uint8_t result = fsk_rx_poll(packet());
     if (result == APP_BEAM_RX_WAIT)
         return;
     if (result == APP_BEAM_RX_ERROR || !valid_packet()) {
@@ -170,8 +253,7 @@ static void poll_rx(void)
     }
 
     g.copiedChannel = A->beam_save(&payload()->channel);
-    A->beam_rx(false);
-    g.receiving = false;
+    stop_rx();
     g.status = g.copiedChannel == 0xFFFFu ? STATUS_RX_FULL : STATUS_RX_SAVED;
     A->backlight_on();
     g.dirty = true;
@@ -241,6 +323,5 @@ void app_main(const app_api_t *api)
         }
     }
 
-    stop_rx();
-    A->beam_leave();
+    SEQ(SEQ_RESET);   /* stop the FSK modem (RX or idle) before returning */
 }

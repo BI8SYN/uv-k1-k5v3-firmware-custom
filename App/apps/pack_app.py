@@ -40,6 +40,7 @@ ASSET_MAX      = cdefine("app_overlay.h", "APP_ASSET_MAX")     # header-sector a
 API_ASSETS     = cdefine("app_api.h",     "APP_API_ASSETS")    # first level serving assets
 FLAG_COMMITTED = cdefine("app_overlay.h", "APP_FLAG_COMMITTED")
 FLAG_SCREEN_SAVER = cdefine("app_overlay.h", "APP_FLAG_SCREEN_SAVER")
+FLAG_EXIT_TO_MAIN = cdefine("app_overlay.h", "APP_FLAG_EXIT_TO_MAIN")
 FLAG_SHORTCUT_SHIFT = cdefine("app_overlay.h", "APP_FLAG_SHORTCUT_SHIFT")
 SHORTCUTS = {
     "none": 0,
@@ -50,7 +51,7 @@ SHORTCUTS = {
 }
 CAPABILITIES = {
     "fm": cdefine("app_overlay.h", "APP_CAP_FM"),
-    "beam": cdefine("app_overlay.h", "APP_CAP_BEAM"),
+    "beam2": cdefine("app_overlay.h", "APP_CAP_BEAM2"),
     "sysinfo": cdefine("app_overlay.h", "APP_CAP_SYSINFO"),
 }
 
@@ -71,6 +72,8 @@ def main():
                     help="RAM VMA the app was linked at (must match the firmware overlay)")
     ap.add_argument("--screensaver", action="store_true",
                     help="allow the resident BLTime screen saver while this app is idle")
+    ap.add_argument("--exit-main", action="store_true",
+                    help="return to the radio screen, not the Apps menu, when the app exits")
     ap.add_argument("--shortcut", choices=SHORTCUTS, default="none",
                     help="resident quick action advertised by this app")
     ap.add_argument("--require", action="append", choices=CAPABILITIES, default=[],
@@ -98,6 +101,7 @@ def main():
     crc = zlib.crc32(code) & 0xFFFFFFFF
     flags = (FLAG_COMMITTED |
              (FLAG_SCREEN_SAVER if a.screensaver else 0) |
+             (FLAG_EXIT_TO_MAIN if a.exit_main else 0) |
              (SHORTCUTS[a.shortcut] << FLAG_SHORTCUT_SHIFT))
     required_caps = 0
     for capability in a.require:
