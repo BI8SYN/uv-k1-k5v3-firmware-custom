@@ -33,8 +33,12 @@
 #include "driver/bk4819.h"
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
+#include "font.h"
 #include "functions.h"
 #include "helper/battery.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    #include "k5viewer.h"
+#endif
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
@@ -1310,6 +1314,57 @@ static void UI_FormatFrequency(uint32_t freq, char *buffer) {
 }
 
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+#define FULL_WATCH_ARROW_Y     25u
+#define FULL_WATCH_ARROW_WIDTH 16u
+
+static bool gFullWatchArrowsVisible;
+
+static void UI_MAIN_DrawFullWatchArrows(uint8_t x, uint8_t phase)
+{
+    const uint8_t *glyph = gFont3x5['>' - ' '];
+    uint8_t *line = gFrameBuffer[FULL_WATCH_ARROW_Y / 8u];
+    const uint8_t mask = (uint8_t)(0x1Fu << (FULL_WATCH_ARROW_Y % 8u));
+    const uint8_t end = x + FULL_WATCH_ARROW_WIDTH;
+
+    for (uint8_t column = 0; column < FULL_WATCH_ARROW_WIDTH; column++)
+        line[x + column] &= (uint8_t)~mask;
+
+    for (uint8_t arrow = 0; arrow < 4u; arrow++)
+    {
+        const uint8_t arrowX = x + arrow * 4u + phase;
+        if (arrowX + 2u >= end)
+            continue;
+
+        for (uint8_t column = 0; column < 3u; column++)
+            line[arrowX + column] |=
+                (uint8_t)(glyph[column] << (FULL_WATCH_ARROW_Y % 8u));
+    }
+}
+
+void UI_MAIN_UpdateFullWatchArrows(void)
+{
+    if (!gFullWatchArrowsVisible ||
+        gScreenToDisplay != DISPLAY_MAIN ||
+        center_line != CENTER_LINE_NONE ||
+        gUpdateDisplay ||
+        APP_IsScreenSaverDisplayed())
+        return;
+
+    uint8_t count;
+    APP_GetFullWatchBackgroundVfos(&count);
+    if (count == 0)
+        return;
+
+    const uint8_t x = count == 1 ? 53u : 45u;
+    UI_MAIN_DrawFullWatchArrows(x, APP_GetFullWatchScrollPhase());
+    ST7565_DrawLine(x, (FULL_WATCH_ARROW_Y / 8u) + 1u,
+                    &gFrameBuffer[FULL_WATCH_ARROW_Y / 8u][x],
+                    FULL_WATCH_ARROW_WIDTH);
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    K5VIEWER_Update(false);
+#endif
+}
+
 static void UI_MAIN_DrawFullWatchPriorities(void)
 {
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
@@ -1324,10 +1379,11 @@ static void UI_MAIN_DrawFullWatchPriorities(void)
     if (count == 0)
         return;
 
+    gFullWatchArrowsVisible = true;
     GUI_DisplaySmallest(count == 1 ? "TRIPLE WATCH" : "QUAD WATCH",
-                        count == 1 ? 25u : 18u, 25u, false, true);
-    GUI_DisplaySmallest("(", count == 1 ? 74u : 59u, 25u, false, true);
-    GUI_DisplaySmallest(")", count == 1 ? 101u : 109u, 25u, false, true);
+                        3u, 25u, false, true);
+    UI_MAIN_DrawFullWatchArrows(count == 1 ? 53u : 45u,
+                                APP_GetFullWatchScrollPhase());
 
     for (uint8_t i = 0; i < count; i++)
     {
@@ -1344,7 +1400,7 @@ static void UI_MAIN_DrawFullWatchPriorities(void)
                     channel - (isFrequency ? FREQ_CHANNEL_FIRST : NOAA_CHANNEL_FIRST) + 1u);
         }
 
-        const uint8_t x1 = count == 1 ? 79u : 64u + i * 23u;
+        const uint8_t x1 = (count == 1 ? 72u : 64u) + i * 23u;
         GUI_DisplaySmallestInverse(text, x1 + 2u, 3, false, true, x1 + 19u);
     }
 }
@@ -1392,6 +1448,9 @@ void UI_DisplayMain(void)
     char               String[22];
 
     center_line = CENTER_LINE_NONE;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    gFullWatchArrowsVisible = false;
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
     if (gScanStateDir == SCAN_OFF)

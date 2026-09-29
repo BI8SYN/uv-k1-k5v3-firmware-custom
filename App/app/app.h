@@ -38,6 +38,7 @@ void     APP_ModalScreenSaverExit(void);
 VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo);
 // Requires Full Watch mode; initializes the background VFOs on first access.
 VFO_Info_t *const *APP_GetFullWatchBackgroundVfos(uint8_t *count);
+uint8_t APP_GetFullWatchScrollPhase(void);
 #endif
 
 #endif

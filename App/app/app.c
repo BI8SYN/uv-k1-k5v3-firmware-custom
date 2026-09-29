@@ -916,6 +916,7 @@ static VFO_Info_t *gFullWatchBackgroundVfo[2];
 static uint8_t    gFullWatchCurrentBackground = 0xFFu;
 static uint8_t    gFullWatchBackgroundCount;
 static uint8_t    gFullWatchSequenceIndex = 0xFFu;
+static uint8_t    gFullWatchScrollPhase;
 
 static void FullWatchReset(void)
 {
@@ -923,6 +924,7 @@ static void FullWatchReset(void)
     gFullWatchCurrentBackground = 0xFFu;
     gFullWatchBackgroundCount = 0;
     gFullWatchSequenceIndex = 0xFFu;
+    gFullWatchScrollPhase = 0u;
 }
 
 static VFO_Info_t *FullWatchLoadPriority(uint8_t priority, uint16_t channel, const ChannelAttributes_t *attributes)
@@ -1015,6 +1017,8 @@ static void FullWatchAlternate(void)
     gEeprom.RX_VFO = replacementVfo;
     gRxVfo = gFullWatchBackgroundVfo[background];
     gFullWatchCurrentBackground = background;
+    gFullWatchScrollPhase = (gFullWatchScrollPhase + 1u) & 3u;
+    UI_MAIN_UpdateFullWatchArrows();
 }
 
 VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo)
@@ -1034,6 +1038,11 @@ VFO_Info_t *const *APP_GetFullWatchBackgroundVfos(uint8_t *count)
     FullWatchInitialize();
     *count = gFullWatchBackgroundCount;
     return gFullWatchBackgroundVfo;
+}
+
+uint8_t APP_GetFullWatchScrollPhase(void)
+{
+    return gFullWatchScrollPhase;
 }
 
 static void FullWatchPromoteCurrentBackground(void)
