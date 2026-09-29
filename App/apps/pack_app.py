@@ -51,6 +51,7 @@ SHORTCUTS = {
 CAPABILITIES = {
     "fm": cdefine("app_overlay.h", "APP_CAP_FM"),
     "beam": cdefine("app_overlay.h", "APP_CAP_BEAM"),
+    "sysinfo": cdefine("app_overlay.h", "APP_CAP_SYSINFO"),
 }
 
 def field(s: str, n: int) -> bytes:

@@ -42,7 +42,7 @@
  * ships is frozen; services added before the next release join its level):
  *   1  v6.0.0 baseline: every service up to and including beam_draw
  *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc),
- *      idivmod, uidivmod (the resident division helpers) */
+ *      idivmod, uidivmod (the resident division helpers), Labs system info */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  2u
 
@@ -257,7 +257,27 @@ typedef struct app_api {
      * the AEABI helpers return them; x / 0 gives 0, remainder x. */
     uint64_t (*idivmod)(int32_t n, int32_t d);
     uint64_t (*uidivmod)(uint32_t n, uint32_t d);
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+    /* ---- API level 2: zero-code Labs system information ---- */
+    const char *sys_edition;
+    const char *sys_version;
+    const char *sys_build_date;
+    const char *sys_build_time;
+    const char *sys_build_commit;
+    const void *sys_flash_end;
+    const void *sys_ram_end;
+    const uint16_t *sys_battery_voltage;
+    const void *sys_battery_type;
+    unsigned int (*sys_battery_percent)(unsigned int voltage_10mV);
+    void (*sys_storage_read)(uint32_t address, void *buffer, uint32_t size);
+#endif
 } app_api_t;
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+_Static_assert(sizeof(app_api_t) == 320u,
+               "Labs system information must add exactly 44 API bytes");
+#endif
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */
 enum { APP_AF_MUTE = 0, APP_AF_FM = 1, APP_AF_AM = 7 };

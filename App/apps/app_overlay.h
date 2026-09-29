@@ -97,6 +97,7 @@
  * previously reserved header bytes, so app_header_t remains 64 bytes. */
 #define APP_CAP_FM            0x00000001u
 #define APP_CAP_BEAM          0x00000004u
+#define APP_CAP_SYSINFO       0x00000008u
 
 /* Aligned RAM objects; app_overlay.c pins every serialized field offset. */
 typedef struct {

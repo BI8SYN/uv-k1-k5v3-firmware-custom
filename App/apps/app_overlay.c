@@ -54,6 +54,9 @@
 #include "helper/battery.h"
 #include "settings.h"
 #include "misc.h"   /* dBmCorrTable */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+#include "version.h"
+#endif
 
 _Static_assert(sizeof(app_header_t) == 64u && _Alignof(app_header_t) == 4u,
                "app_header_t must stay 64 bytes with word alignment");
@@ -85,6 +88,9 @@ enum {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
                        | APP_CAP_BEAM
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+                       | APP_CAP_SYSINFO
 #endif
 };
 
@@ -183,6 +189,11 @@ static int8_t  app_nav_dir(uint8_t key)
 
     return gEeprom.SET_NAV ? direction : -direction;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+extern uint8_t _eflash_used;
+extern uint8_t _ebss;
+#endif
 static void    app_led(bool on)        { BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on); }
 
 static void app_play_tone(uint16_t tone, uint16_t ms)
@@ -784,6 +795,19 @@ static const app_api_t app_api = {
     .asset_read       = app_asset_read,
     .idivmod          = __aeabi_idivmod,
     .uidivmod         = __aeabi_uidivmod,
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+    .sys_edition         = Edition,
+    .sys_version         = DisplayVersion,
+    .sys_build_date      = BuildDate,
+    .sys_build_time      = BuildTime,
+    .sys_build_commit    = BuildCommit,
+    .sys_flash_end       = &_eflash_used,
+    .sys_ram_end         = &_ebss,
+    .sys_battery_voltage = &gBatteryVoltageAverage,
+    .sys_battery_type    = &gEeprom.BATTERY_TYPE,
+    .sys_battery_percent = BATTERY_VoltsToPercent,
+    .sys_storage_read    = PY25Q16_ReadBuffer,
+#endif
 };
 
 uint8_t APP_LaunchOverlay(uint8_t slot)
