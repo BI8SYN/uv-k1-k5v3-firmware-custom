@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Plasma read-only assets: the sine wave, the ordered-dither matrix and the
-# pattern presets. The app copies them onto its stack at launch, so the render
-# loop reads them from RAM at full speed while they stay out of the overlay.
+# Plasma read-only assets: the sine wave, the metaball falloff, the ordered-dither
+# matrix, the scene presets and the HUD texts. The app copies the tables onto its
+# stack at launch, so the render loop reads them from RAM at full speed while
+# they stay out of the overlay.
 #
 #   ./gen_assets.py plasma_assets.bin plasma_assets.h
 import os, sys
@@ -29,11 +30,39 @@ SIN = [
     -12, -12, -11, -10,  -9,  -9,  -8,  -7,  -6,  -5,  -5,  -4,  -3,  -2,  -2,  -1,
 ]
 
+# Metaball falloff ~ 1/d^2, indexed by (squared distance >> shift), clamped to
+# 255 by the app: +106 on a ball centre, -21 far away, so three balls span the
+# field range once doubled (scene gain 1).
+FALL_K = 24
+FALL = [round(139 * FALL_K / (i + FALL_K)) - 33 for i in range(256)]
+
+# Scenes, keys 1-9: {kind, radial centres, x scale, y scale, diagonal scale,
+# radial shift, gain}.  kind 0 = sine ripple of the squared distance, kind 1 =
+# metaball falloff.  A zero scale drops that linear sine term.
+SCENES = [
+    ("CLASSIC", (0, 1, 4, 4, 3, 5, 0)),
+    ("RIPPLE",  (0, 1, 6, 3, 5, 4, 0)),
+    ("SILK",    (0, 1, 3, 7, 2, 6, 0)),
+    ("DUNES",   (0, 1, 5, 5, 4, 5, 0)),
+    ("WARP",    (0, 1, 2, 8, 6, 4, 0)),
+    ("MOIRE",   (0, 2, 0, 0, 0, 2, 1)),   # two interfering zone plates
+    ("ZONE",    (0, 1, 0, 0, 0, 1, 2)),   # one Fresnel zone plate
+    ("BLOBS",   (1, 3, 0, 0, 0, 2, 1)),   # three metaballs
+    ("LAVA",    (1, 3, 2, 3, 0, 2, 1)),   # metaballs over a slow plasma
+]
+
 a = Assets("PLASMA")
+a.table("T_SCENE", [name for name, _ in SCENES])
+a.table("T_MODE", ["BANDS", "DITHER", "CONTOUR"])
+# Title labels, indexed by the app's HUD_* kind.
+a.table("T_LABEL", ["SCENE ", "RENDER: ", "SPEED ", "INVERT: ", "AUTO CYCLE: ", "PAUSE"])
+a.table("T_ONOFF", ["OFF", "ON"])
 a.i8("SIN", SIN)
+a.i8("FALL", FALL)
 # 4x4 ordered-dither matrix, flattened: idx = (y&3)*4 + (x&3), values 0..15.
 a.u8("BAYER", [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5])
-# Pattern presets: {x scale, y scale, diagonal scale, radial ring shift}.
-a.u8("VAR", [4, 4, 3, 5, 6, 3, 5, 4, 3, 7, 2, 6, 5, 5, 4, 5, 2, 8, 6, 4])
-a.const("NVAR", 5)
+a.u8("SCENE", [v for _, rec in SCENES for v in rec])
+a.const("NSCENE", len(SCENES))
+a.const("SCENE_REC", 7)
+a.const("NMODE", 3)
 a.main()
