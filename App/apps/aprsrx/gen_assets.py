@@ -23,7 +23,7 @@ WAIT_CAPS = "WAIT"                          # status-bar capsule until a frame
 UI = [
     ("T_TITLE",  TITLE),
     ("T_WAIT",   WAIT_CAPS),
-    ("T_DBM",    "dBm  sl "),
+    ("T_DBM",    "dBm"),
     ("T_OK",     "ok "),
     ("T_KMH",    "km/h "),
     ("T_CUSTOM", "Custom-"),
@@ -47,6 +47,7 @@ a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_WAIT_CHARS", len(WAIT_CAPS))
 a.table("T_MSG", MIC_MSG)                    # Mic-E standard messages
+a.u8("BMP_SPEAKER", [0x1c,0x1c,0x3e,0x7f,0x00,0x22,0x1c,0x41,0x22,0x1c])   # FoxHunt's
 a.i8("COS1200", cos_table(1200))            # 8 entries
 a.i8("COS2200", cos_table(2200))            # 48 entries
 a.main()

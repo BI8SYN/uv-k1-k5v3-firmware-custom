@@ -33,8 +33,8 @@
  * are served every 50 ms only while no slicer is inside a preamble or a
  * plausible frame; the redraw follows a new frame, a key, or every 5 s.
  *
- * Keys (UV-K5 and UV-K1): MENU clear · EXIT quit. The speaker plays the
- *   channel: lower the volume.
+ * Keys (UV-K5 and UV-K1): 1 speaker on/off (off at launch: the decoder does
+ *   not need it) · MENU clear · EXIT quit.
  * The loader re-runs RADIO_SetupRegisters on exit; the app restores the ADC,
  * PA4, the DAC and its clock itself.
  */
@@ -128,11 +128,10 @@ static struct {
     uint32_t tPrev, tCyc;              /* SysTick cycle counter                   */
     uint32_t tFrame, tDraw;            /* ticks_ms of the last frame, last redraw */
     uint32_t savedSqr3, savedSmpr3, savedModer, savedDac, savedRcc, savedDhr;
-    uint8_t  seq, prevKey, redraw;
+    uint8_t  seq, prevKey, redraw, spk; /* spk: speaker amplifier on (key 1)    */
     bool     running;
     int16_t  rssi;                     /* RSSI at the end of the last frame       */
     uint16_t flen, nOk;                /* frame length, frames                    */
-    uint16_t good[NSL];                /* frames per slicer (duplicates included) */
 } g;
 static char str[34];
 
@@ -164,6 +163,7 @@ static char *puti(char *o,int32_t v){
 static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,true); }
 
 #define WAIT_CAPS_X 40u    /* "WAIT" capsule in the status bar, after the title */
+#define SPK_X       62u    /* speaker icon (FoxHunt's), after the capsule          */
 
 /* Tiny rows under the source line: the path (capitals and digits: no
  * descenders), then 3 info rows 6 px apart (the 3x5 font is 5 px, 6 with
@@ -334,12 +334,11 @@ static bool slice(sl_t *m,int32_t a,int32_t b){
     return false;
 }
 
-/* ---- a good frame from slicer k: shown unless another slicer just gave it ---- */
-static void accept(sl_t *m,uint8_t k){
+/* ---- a good frame from a slicer: shown unless another slicer just gave it ---- */
+static void accept(sl_t *m){
     const app_api_t *A=g.A;
     uint16_t n=m->n;
     uint32_t t=A->ticks_ms();
-    if(g.good[k]<COUNT_MAX) g.good[k]++;
     if(!(n==g.flen && g.frm[n-1]==m->buf[n-1] && g.frm[n-2]==m->buf[n-2]
          && t-g.tFrame<DUP_MS)){
         memcpy(g.frm,m->buf,n);
@@ -484,6 +483,7 @@ static void draw(void){
     A->status_clear();
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     A->draw_battery();
+    if(g.spk) A->asset_read(BMP_SPEAKER,A->status_line+SPK_X,BMP_SPEAKER_LEN);
 
     if(!g.flen)                          /* no frame yet: a capsule, as APRS TX's TRANSMIT */
         A->print_inverse(s+T_WAIT,WAIT_CAPS_X,0,true,true,(uint8_t)(WAIT_CAPS_X+T_WAIT_CHARS*4u));
@@ -517,11 +517,9 @@ static void draw(void){
     for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x40u;
     drawFreq(g.vfoFreq);
 
-    /* bottom line: "ok 12  -89dBm  sl 5/12/7": frames, RSSI of the last one,
-     * frames per slicer (<= 31 characters) */
+    /* bottom line: "ok 12  -89dBm": frames, RSSI of the last one */
     o=put(str,s+T_OK); o=puti(o,g.nOk); *o++=' '; *o++=' ';
     o=puti(o,g.rssi); o=put(o,s+T_DBM);
-    for(uint8_t k=0;k<NSL;k++){ if(k) *o++='/'; o=puti(o,g.good[k]); }
     tiny(49,o);
 }
 
@@ -533,10 +531,8 @@ static void handleKeys(void){
     g.prevKey=key;
     g.redraw=1;
     if(key==APP_KEY_EXIT) g.running=false;
-    else if(key==APP_KEY_MENU){
-        g.flen=0; g.nOk=0; g.seq=0; g.rssi=0;
-        for(uint8_t k=0;k<NSL;k++) g.good[k]=0;
-    }
+    else if(key==APP_KEY_MENU){ g.flen=0; g.nOk=0; g.seq=0; g.rssi=0; }
+    else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
 }
 
 /* ---- keys and screen, between frames ---- */
@@ -587,7 +583,7 @@ static void listen(void){
         front(&d,adcRead(),&a,&b);
         bool bz=false;
         for(uint8_t k=0;k<NSL;k++){
-            if(slice(&sl[k],a,b)) accept(&sl[k],k);
+            if(slice(&sl[k],a,b)) accept(&sl[k]);
             bz|=busy(&sl[k]);
         }
         if(++cnt<HOUSE_EVERY) continue;
@@ -612,7 +608,11 @@ void app_main(const app_api_t *api){
     biasOn();
     api->backlight_on();
     g.vfoFreq=api->rx_freq();
-    api->audio_path(true);
+    /* Speaker amplifier (PA8) off: the decoder does not need it (tested on the
+     * radio, 2026-09-30): PA4, the voice-prompt DAC pin, joins the audio before
+     * the amplifier; only the BK4829 AF output must be on. Key 1 turns the
+     * speaker on to listen to the channel. */
+    api->audio_path(false);
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
 

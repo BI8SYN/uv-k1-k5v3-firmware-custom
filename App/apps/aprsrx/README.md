@@ -11,7 +11,7 @@ Status:
 | Audio path an app can sample | **Done** by EPIRB 406: RX audio on PA4, ADC channel 4 at 9.6 kHz |
 | Integer demodulator, modelled on synthetic audio (`test/model_rx.py`) | **Done** (see below) |
 | Flipper Zero test transmitter (`test/flipper_aprs.py`) | **Done**, files in `test/flipper/` |
-| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions, the frequency bottom right as Beacon, drops `pp` and the UP/DOWN/5 tuning offset to fit 4 KiB (builds: 3976 B, 120 B free; radio test pending) |
+| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions, the frequency bottom right as Beacon, drops `pp` and the UP/DOWN/5 tuning offset to fit 4 KiB (3976 B); main-screen frequency, WAIT capsule (4068 B); v0.6: speaker off, key 1 toggles it, per-slicer counters dropped (not built yet) |
 | Bench test with the Flipper on 433.650 MHz | **Done** (2026-09-30, v0.1: `_long` 10/10 in STD; `_badfcs` not shown) |
 | Real station: FT3D beacon on 144.800 MHz | **Done** (2026-09-30, v0.1: Mic-E frame `>TXUPX9` received, FCS good, = 48°50.89' N 2°16.25' E) |
 | Mic-E decoding (`test/mice.py`: spec encoder vs the app's decoder) | **Done** in the model: 6 cases + the FT3D frame |
@@ -21,8 +21,9 @@ Status:
 1. Set the VFO to the APRS frequency, **FM**: 144.800 MHz, or 433.650 MHz for the
    Flipper test files.
 2. Launch **APRS RX**.
-3. Lower the volume: the RX audio must stay on (it is what reaches PA4), so the
-   speaker plays the channel.
+3. The speaker is off (v0.6): the decoder does not need it, only the BK4829 AF
+   output (tested on the radio: PA4 joins the audio before the amplifier). Key 1
+   turns it on to listen to the channel, as FoxHunt's audio key.
 
 Since v0.4 the app decodes **continuously**, as a TNC does: no RSSI trigger,
 the FCS and a UI-frame check (control 0x03, PID 0xF0) sort frames from noise.
@@ -38,17 +39,18 @@ The screen is redrawn after a new frame, a key, or every 5 s.
 
 | Screen | Content |
 |---|---|
-| Status bar | `APRS RX` title, then a `WAIT` capsule until the first frame |
+| Status bar | `APRS RX` title, then a `WAIT` capsule until the first frame, and the speaker icon while the speaker is on |
 | Line 0 | Source call and frame number, e.g. `F4HWN-7 #3` |
 | Tiny row y=8 | `>DEST,DIGI*,...` (as many path entries as fit on one row) |
 | Tiny rows y=13/19/25 | Info field, 3 × 32 characters (non-ASCII shown as `.`); for Mic-E (most Yaesu/Kenwood beacons, v0.3): position `48 50.89N 002 16.25E`, then speed km/h, course, symbol and message type (`Off Duty`, `En Route`...), then altitude and comment without the device markers; for an uncompressed position (`!` `=` `/` `@`, v0.5): position, then the timestamp if any, the symbol (table + code) and the comment over two rows. Compressed positions stay raw text |
 | Lines 4-5 | Under a dotted separator (y=30), the frequency drawn as the main screen draws it (big digits up to the kHz, the last two in the small font), centred; same code as APRS TX |
-| Bottom row y=49 | `ok 12  -89dBm  sl 5/12/7`: frames received, RSSI at the end of the last frame, frames per slicer (space-favouring / neutral / mark-favouring; a frame found by several slicers counts in each, but once in `ok`) |
+| Bottom row y=49 | `ok 12  -89dBm`: frames received, RSSI at the end of the last frame. (v0.4-v0.5 also showed frames per slicer, `sl a/b/c`: on air the outer slicers found frames too; dropped in v0.6 to fit the speaker key) |
 
 Keys (UV-K5 and UV-K1):
 
 | Key | Action |
 |---|---|
+| 1 | Speaker on/off (off at launch); FoxHunt's speaker icon in the status bar while on |
 | MENU | Clear the last frame and the counters |
 | EXIT | Quit |
 
@@ -152,5 +154,4 @@ the standard position display against real frames;
   0.065 LSB/Hz), **measured 734-778** with the Flipper and **916** with a real
   station (F1PRY-14): ~20 % of full scale, plenty of headroom, and the per-tone
   AGC makes the absolute level irrelevant.
-- The per-slicer counters show which decision threshold the stations need: if
-  one outer slicer does most of the work, the twist of the path is off-centre.
+
