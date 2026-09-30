@@ -23,7 +23,7 @@ DEST = "APZK5"                             # APZ = experimental software
 PATH = ["WIDE1-1"]                         # [] for none
 LAT, LON = "4850.90N", "00216.25E"         # default position: DDMM.hhN, DDDMM.hhE
 SYMBOL = "/["                              # table, code: '[' = person
-COMMENT = "UV-K5 APRS TX"
+COMMENT = "UV-K5 & UV-K1 APRS TX"
 # info field: "!" + LAT + SYMBOL[0] + LON + SYMBOL[1] + COMMENT
 
 TITLE = "APRS TX"

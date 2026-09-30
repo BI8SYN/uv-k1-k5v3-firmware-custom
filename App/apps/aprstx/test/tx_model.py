@@ -143,7 +143,7 @@ def main():
     ok = True
     f = build_c(blob, D)
     ssid = D["CFG_SSID"]
-    info = "!4850.90N/00216.25E[UV-K5 APRS TX"          # gen_assets.py defaults
+    info = "!4850.90N/00216.25E[UV-K5 & UV-K1 APRS TX"          # gen_assets.py defaults
     ref = build("%s-%d" % (CALL, ssid) if ssid else CALL, dst="APZK5", path=["WIDE1-1"], info=info)
     print("frame  ", decode(f), "(%d bytes)" % len(f))
     ok &= f == ref
@@ -160,7 +160,7 @@ def main():
     pos = [3, 3, 5, 2, 1, 3, 1, 5, 1, 1, 2, 5, 6]           # 33 52.13S 151 12.56W
     f2 = build_c(blob, D, pos=pos, hemi=3)
     want = build("F4HWN-7", dst="APZK5", path=["WIDE1-1"],
-                 info="!3352.13S/15112.56W[UV-K5 APRS TX")
+                 info="!3352.13S/15112.56W[UV-K5 & UV-K1 APRS TX")
     ok &= f2 == want
     print("edited position frame:", f2 == want, decode(f2))
     c = cfg_pack(70, -2, pos, 3)
