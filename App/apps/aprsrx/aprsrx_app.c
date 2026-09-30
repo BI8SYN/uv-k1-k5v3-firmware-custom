@@ -165,11 +165,11 @@ static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,
 #define WAIT_CAPS_X 40u    /* "WAIT" capsule in the status bar, after the title */
 #define SPK_X       62u    /* speaker icon (FoxHunt's), after the capsule          */
 
-/* Tiny rows under the source line: the path (capitals and digits: no
- * descenders), then 3 info rows 6 px apart (the 3x5 font is 5 px, 6 with
- * descenders), ending at y = 29 above the separator (y = 30). */
+/* Tiny rows under the source line: the path, then 3 info rows, 6 px apart (the
+ * 3x5 glyphs are 5 px: one blank px between rows, descenders aside), the last
+ * ending at y = 30, one px above the separator (y = 31). */
 #define Y_PATH      8u
-#define Y_INFO      13u
+#define Y_INFO      14u
 #define ROW_STEP    6u
 
 /* The frequency (10 Hz units) drawn as the main screen draws it (ui/main.c,
@@ -512,9 +512,9 @@ static void draw(void){
             for(uint8_t row=0;row<3u;row++) i=textRow(str,f,i,end,(uint8_t)(Y_INFO+row*ROW_STEP));
     }
 
-    /* dotted separator above the frequency: y = 30, bit 6 of line 3 (the big
-     * digits start at y = 33) */
-    for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x40u;
+    /* dotted separator above the frequency: y = 31, bit 7 of line 3 (the big
+     * digits start at y = 33: one blank px between) */
+    for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x80u;
     drawFreq(g.vfoFreq);
 
     /* bottom line: "ok 12  -89dBm": frames, RSSI of the last one */

@@ -42,8 +42,8 @@ The screen is redrawn after a new frame, a key, or every 5 s.
 | Status bar | `APRS RX` title, then a `WAIT` capsule until the first frame, and the speaker icon while the speaker is on |
 | Line 0 | Source call and frame number, e.g. `F4HWN-7 #3` |
 | Tiny row y=8 | `>DEST,DIGI*,...` (as many path entries as fit on one row) |
-| Tiny rows y=13/19/25 | Info field, 3 × 32 characters (non-ASCII shown as `.`); for Mic-E (most Yaesu/Kenwood beacons, v0.3): position `48 50.89N 002 16.25E`, then speed km/h, course, symbol and message type (`Off Duty`, `En Route`...), then altitude and comment without the device markers; for an uncompressed position (`!` `=` `/` `@`, v0.5): position, then the timestamp if any, the symbol (table + code) and the comment over two rows. Compressed positions stay raw text |
-| Lines 4-5 | Under a dotted separator (y=30), the frequency drawn as the main screen draws it (big digits up to the kHz, the last two in the small font), centred; same code as APRS TX |
+| Tiny rows y=14/20/26 | Info field, 3 × 32 characters (non-ASCII shown as `.`); for Mic-E (most Yaesu/Kenwood beacons, v0.3): position `48 50.89N 002 16.25E`, then speed km/h, course, symbol and message type (`Off Duty`, `En Route`...), then altitude and comment without the device markers; for an uncompressed position (`!` `=` `/` `@`, v0.5): position, then the timestamp if any, the symbol (table + code) and the comment over two rows. Compressed positions stay raw text |
+| Lines 4-5 | Under a dotted separator (y=31), the frequency drawn as the main screen draws it (big digits up to the kHz, the last two in the small font), centred; same code as APRS TX |
 | Bottom row y=49 | `ok 12  -89dBm`: frames received, RSSI at the end of the last frame. (v0.4-v0.5 also showed frames per slicer, `sl a/b/c`: on air the outer slicers found frames too; dropped in v0.6 to fit the speaker key) |
 
 Keys (UV-K5 and UV-K1):
