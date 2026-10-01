@@ -10,7 +10,7 @@ Status:
 |---|---|
 | Feasibility: can an app read the demodulated signal? | **Done**: yes, on PA4 (see `../lab406/README.md`) |
 | Decoder core (`dec406.c`), host-tested on synthetic audio | **Done**: 17/17 tests pass |
-| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio |
+| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes |
 | Bench test with the beacon generator on 433.650 MHz | **Done** (2026-09-27) |
 | Bench test with a Flipper Zero on 433.650 MHz (`test/flipper406.py`) | **Done** (2026-09-30, v1.6) |
 
@@ -73,6 +73,11 @@ instead of a literal-pool word per global), the dead `seq`/`inv` copies of the
 last message are gone, and the zeroing already done by the loader, the ADC
 restore already done after each capture and the backlight call already made
 every loop are no longer repeated.
+
+v1.7 counts the sync-pattern bits with a loop (one pass per set bit) instead of
+the branch-free version: 36 bytes less, **3,284 bytes, 812 free**. The cost is
+at most 4 x 32 passes per half-bit (every 12 samples), and only while searching
+for the sync, against 5,000 cycles per sample; host tests 29/29.
 
 ## Signal path on the radio
 
@@ -310,4 +315,4 @@ a real bias reproduced on the host at the measured level.
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio. It is
 written into the title text of the assets by `gen_assets.py` and shown in the
 status-bar title (e.g. `v1.1`), since the apps menu does not display versions.
-Current: **v1.6**.
+Current: **v1.7**.

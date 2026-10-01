@@ -40,11 +40,14 @@
  * against T.001. */
 #define STD_DEFAULT_POS  0x0FFBFFu   /* 0 1111111 11 0 11111111 11 */
 
+/* Bit count, one pass per set bit: at most 4 x 32 passes per half-bit (every
+ * 12 samples, and only while searching), far inside the 5000 cycles of a
+ * sample period; 36 bytes smaller than the branch-free version. */
 static uint8_t popc32(uint32_t x)
 {
-    x = x - ((x >> 1) & 0x55555555u);
-    x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
-    return (uint8_t)((((x + (x >> 4)) & 0x0F0F0F0Fu) * 0x01010101u) >> 24);
+    uint8_t n = 0;
+    for (; x; x &= x - 1u) n++;
+    return n;
 }
 
 /* Match the last 44 half-bits against one sync pattern in both polarities:
