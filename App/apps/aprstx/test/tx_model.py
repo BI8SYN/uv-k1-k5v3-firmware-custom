@@ -48,22 +48,28 @@ def pos_ok(d):
     return True
 
 
-def cfg_pack(lvl, tw, pos, hemi, ssid, path):
-    c = [0xA8, lvl, tw & 0xFF] + [0] * 8
+CW_COMPACT = 14                      # aprstx_app.c: the compact view
+
+
+def cfg_pack(lvl, tw, pos, hemi, ssid, path, cw=0):
+    c = [0xA8, lvl, tw & 0xFF] + [0] * 9
     for i, x in enumerate(pos): c[3 + i // 2] |= x << ((i & 1) * 4)
     c[9] |= hemi << 4
     c[10] = 0x80 | path << 4 | ssid
+    c[11] = cw
     return bytes(c)
 
 
 def cfg_unpack(c, D):
-    """aprstx_app.c app_main(): position, hemispheres, SSID and path (the
-    defaults when byte 10 is erased or from a v0.2 config)"""
+    """aprstx_app.c app_main(): position, hemispheres, SSID, path (the
+    defaults when byte 10 is erased or from a v0.2 config) and view (scroll
+    unless byte 11 is CW_COMPACT: erased before v0.4)"""
     pos = [(c[3 + i // 2] >> ((i & 1) * 4)) & 15 for i in range(13)]
+    cw = CW_COMPACT if c[11] == CW_COMPACT else 0
     h = c[10]
     if (h & 0xC0) == 0x80 and (h >> 4) & 3 <= 2:
-        return pos, c[9] >> 4, h & 15, (h >> 4) & 3
-    return pos, c[9] >> 4, D["CFG_SSID"], D["CFG_PATH"]
+        return pos, c[9] >> 4, h & 15, (h >> 4) & 3, cw
+    return pos, c[9] >> 4, D["CFG_SSID"], D["CFG_PATH"], cw
 
 
 def edit_row(label, d, h, cur):
@@ -223,13 +229,13 @@ def main():
         want = build("F4HWN-%d" % sid if sid else "F4HWN", dst="APZK5", path=WIDE[:path], info=info)
         ok &= f3 == want
         print("SSID %2d, path %d frame:" % (sid, path), f3 == want, decode(f3))
-    c = cfg_pack(70, -2, pos, 3, 9, 2)
-    good = len(c) == 11 and cfg_unpack(c, D) == (pos, 3, 9, 2)
+    c = cfg_pack(70, -2, pos, 3, 9, 2, CW_COMPACT)
+    good = len(c) == 12 and cfg_unpack(c, D) == (pos, 3, 9, 2, CW_COMPACT)
     old = cfg_pack(70, -2, pos, 3, 0, 0)[:10]               # a v0.2 config: byte 10 erased or 0
-    good &= all(cfg_unpack(old + bytes([b]), D) == (pos, 3, D["CFG_SSID"], D["CFG_PATH"])
-                for b in (0xFF, 0x00))
+    good &= all(cfg_unpack(old + bytes([b, 0xFF]), D) == (pos, 3, D["CFG_SSID"], D["CFG_PATH"], 0)
+                for b in (0xFF, 0x00))                      # byte 11 erased: scroll view
     ok &= good
-    print("config round trip, v0.2 config -> default SSID and path:", good, c.hex())
+    print("config round trip, v0.2 config -> default SSID and path, scroll view:", good, c.hex())
     rows = (edit_row("LAT  ", pos[:6], "S", 2), edit_row("LON ", pos[6:], "W", -1),
             edit_row("LAT  ", pos[:6], "S", CUR_NS),          # N/S in bold
             edit_row("LON ", pos[6:], "W", CUR_EW - 7),       # E/W in bold

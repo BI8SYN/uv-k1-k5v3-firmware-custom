@@ -92,4 +92,9 @@ a.u8("POS_DEF", POS + [HEMI])
 a.raw("F_SYM", SYMBOL.encode("ascii"))
 a.raw("F_COMMENT", COMMENT.encode("ascii"))
 a.u8("BMP_F", [0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e])   # F armed, as FoxHunt / FM / Beacon
+# scroll marks (status bar, x = 75, as APRS RX): up only, down only, both; up
+# in bits 0-2 (rows hidden above), down in bits 4-6 (rows hidden below)
+UP, DN = [0x04, 0x06, 0x07, 0x06, 0x04], [0x10, 0x30, 0x70, 0x30, 0x10]
+a.u8("BMP_SCROLL", UP + DN + [u | d for u, d in zip(UP, DN)])
+a.const("BMP_SCROLL_W", 5)
 a.main()

@@ -32,16 +32,19 @@
  * (REG_51) so nothing rides under the AFSK. test/tx_model.py mirrors the frame
  * and bit stream and decodes them with the APRS RX model.
  *
- * Keys (UV-K5 and UV-K1): PTT or MENU send · UP/DOWN tone level (deviation,
- *   REG_70 gain 10-127) · 1/3 twist: 2200 Hz gain = level x (8 + tw) / 8,
+ * Keys (UV-K5 and UV-K1): PTT or MENU send · UP/DOWN (held) scroll the frame
+ *   1 px per loop · 1 / F then 1 tone level up / down (deviation, REG_70 gain
+ *   10-127) · 2 / F then 2 twist up / down: 2200 Hz gain = level x (8 + tw) / 8,
  *   tw -4..+8 (-6..+6 dB), for a receiver's de-emphasis · 5 edit the position,
- *   SSID and path · EXIT quit.
+ *   SSID and path · * scroll view / compact view · EXIT quit. F as FoxHunt's: the next key goes down, an icon
+ *   in the status bar while armed.
  * Editor (the field under the cursor in bold): 0-9 type a digit (the cursor
  *   skips the separators and N/S, and moves on) · * toggle N/S or E/W on the
  *   position lines, next SSID or path on theirs · F then * the previous SSID or
  *   path · UP/DOWN move the cursor (6 digits, N/S, 7 digits, E/W, SSID, path) ·
  *   MENU check and keep · EXIT cancel.
- * Level, twist, position, SSID and path are saved on exit (cfg_save, 11 bytes).
+ * Level, twist, position, SSID, path and view are saved on exit (cfg_save, 12
+ * bytes).
  */
 
 #include <stdint.h>
@@ -81,6 +84,10 @@
 #define POS_DIGITS  13u
 #define LAT_DIGITS  6u
 #define TX_CAPS_X   40u    /* "TRANSMIT" capsule in the status bar, after the title */
+#define F_X         70u    /* F icon (9 px), as FoxHunt / FM / Beacon             */
+#define SCROLL_X    72u    /* scroll marks (5 px), centred on the F icon that takes
+                              their place while armed; not while transmitting:
+                              the capsule ends at x = 72                           */
 /* editor cursor stops: 0-5 the latitude digits, N/S, 7-13 the longitude
  * digits, E/W, SSID, path */
 #define CUR_NS      LAT_DIGITS
@@ -89,8 +96,9 @@
 #define CUR_PATH    (CUR_EW + 2u)
 #define FIELD_COL   5u     /* "SSID " / "PATH ": the value's column             */
 #define CFG_MAGIC   0xA8u  /* 0xA7 (v0.1: level and twist only) is ignored */
-#define CFG_LEN     11u    /* magic, level, twist, 13 digits + hemispheres in nibbles,
-                              then 0x80 | path << 4 | SSID (v0.2 configs: defaults) */
+#define CFG_LEN     12u    /* magic, level, twist, 13 digits + hemispheres in nibbles,
+                              then 0x80 | path << 4 | SSID (v0.2 configs: defaults),
+                              then the view (CW_COMPACT, else scroll: 0xFF before v0.4) */
 #define LOOP_MS     40u
 #define REFRESH_LOOPS 125u /* a redraw every 5 s without a key (battery)       */
 
@@ -109,6 +117,8 @@ static struct {
     uint8_t  hemi, ehemi, cur;         /* hemispheres, edited ones, editor cursor */
     uint8_t  ssid, essid, path, epath; /* source SSID, path, and the edited ones  */
     uint8_t  tick;                     /* loops since the last draw()             */
+    uint8_t  top, lim, vrow;           /* scroll (px) and its limit, row being drawn */
+    uint8_t  cw;                       /* view: 0 scroll, CW_COMPACT compact      */
     uint16_t sent;                     /* frames sent                             */
     const app_api_t *A;
     uint8_t *frm;                      /* the frame (app_main's stack)            */
@@ -144,6 +154,46 @@ static char *puti(char *o,int32_t v){
 /* A tiny row holds 32 characters (4 px each): print_tiny does not clip, so
  * every row built below stays within that. */
 static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,true); }
+
+/* The frame is shown above the separator (y = 31), in one of two views (key *),
+ * as in APRS RX:
+ * - scroll (g.cw = 0): rows of 18 characters in the small font (7 px each),
+ *   8 px apart (glyphs 7 px, bit 7 blank), scrolled by g.top pixels: 4 rows
+ *   show at g.top = 0;
+ * - compact (g.cw = CW_COMPACT): the source in the small font, then rows of 32
+ *   tiny characters (4 px each), 6 px apart from y = 8, the 4th ending at
+ *   y = 30; no scroll, the rest of the frame is not shown. */
+#define ROW_CHARS   18u
+#define CW_COMPACT  14u    /* compact rows: ROW_CHARS + 14 = 32 characters */
+
+/* One row str..end of the frame, wrapped every ROW_CHARS + g.cw (neither font
+ * clips). Scroll view: row r goes to line r - top/8 when that is 0..4: line 4
+ * (under the separator, redrawn after) only feeds the pixel shift of draw().
+ * Row 0, the source, is drawn in bold (same 7 px glyphs) on line 0 in both
+ * views; compact rows 1-4 in the tiny font, the next ones dropped. */
+static void emit(char *end){
+    const app_api_t *A=g.A;
+    char *p=str;
+    while(p<end){
+        uint8_t w=(uint8_t)(ROW_CHARS+g.cw);   /* compare lengths: p + w may lie past str */
+        char *q=(end-p>w)?p+w:end;
+        char c=*q; *q='\0';
+        uint8_t r=g.vrow, ln=(uint8_t)(r-(g.top>>3));    /* top = 0 when compact */
+        if(g.cw && r){ if(r<5u) A->print_tiny(p,0,(uint8_t)(r*6u+2u),false,true); }
+        else if(ln<5u) (r?A->print_normal:A->print_bold)(p,0,0,ln);
+        *q=c;
+        g.vrow=(uint8_t)(r+1u);
+        p=q;
+    }
+}
+
+/* Between two parts of a row ("48 50.90N" / "002 16.25E"): a new row in the
+ * scroll view, a space in the compact one. */
+static char *brk(char *o){
+    if(g.cw){ *o++=' '; return o; }
+    emit(o);
+    return str;
+}
 /* The frequency (10 Hz units) drawn as the main screen draws it (ui/main.c,
  * ENABLE_BIG_FREQ): the big digits up to the kHz on lines 4-5, the last two
  * digits in the small font on line 5 right after them (from 1 GHz, the whole
@@ -305,7 +355,7 @@ static void draw(void){
     if(g.status==ST_TX)                  /* a second capsule while on the air */
         A->print_inverse(s+T_TX,TX_CAPS_X,0,true,true,(uint8_t)(TX_CAPS_X+T_TX_CHARS*4u));
     if(g.fArm)                           /* editor: F armed, as FoxHunt / FM / Beacon */
-        A->asset_read(BMP_F,A->status_line+70,BMP_F_LEN);
+        A->asset_read(BMP_F,A->status_line+F_X,BMP_F_LEN);
     A->draw_battery();
 
     if(g.edit){
@@ -320,25 +370,62 @@ static void draw(void){
         tiny(40,put(str,s+T_HELP1));
         tiny(48,put(str,g.status==ST_BADPOS?s+T_BADPOS:s+T_HELP2));
     } else {
+        g.vrow=0;
         if(g.flen){
             const uint8_t *f=g.frm;
-            o=putCall(str,f+7); *o='\0';
-            A->print_normal(str,0,0,0);              /* source */
+            o=putCall(str,f+7);
+            emit(o);                                 /* source */
+            /* ">APZK5,WIDE1-1," / "WIDE2-1": a row breaks after a comma when
+             * the next call (up to 9 characters) might not fit */
             o=str; *o++='>'; o=putCall(o,f);
             uint8_t e=13;                            /* the last address byte */
-            while(!(f[e]&1u)){ e+=7; *o++=','; o=putCall(o,f+e-6); }
-            tiny(9,o);                               /* ">APZK5,WIDE1-1,WIDE2-1" (<= 2 hops) */
-            uint8_t i=(uint8_t)(e+3u), end=(uint8_t)(g.flen-2u);   /* info, after control + PID */
-            for(uint8_t row=0;row<2u;row++){         /* info (<= 64), 2 rows of 32 */
-                o=str;
-                for(; o<str+32 && i<end; i++) *o++=(char)f[i];
-                tiny((uint8_t)(17u+row*7u),o);
+            while(!(f[e]&1u)){
+                e+=7; *o++=',';
+                if(o>str+ROW_CHARS+g.cw-9u){ emit(o); o=str; }
+                o=putCall(o,f+e-6);
             }
+            emit(o);
+            /* info "!DDMM.hhN/DDDMM.hhE[comment" (built here, always this
+             * layout): "48 50.90N" / "002 16.25E" (brk) / "/[ " + the comment */
+            const uint8_t *q=f+e+4u;                 /* after control, PID and '!' */
+            uint8_t end=(uint8_t)(g.flen-2u);
+            o=str;
+            for(uint8_t k=0;k<18u;k++){
+                if(k==8u){ o=brk(o); continue; }       /* symbol table: later */
+                if(k==2u||k==12u) *o++=' ';
+                *o++=(char)q[k];
+            }
+            emit(o);
+            o=str; *o++=(char)q[8]; *o++=(char)q[18]; *o++=' ';
+            for(uint8_t i=(uint8_t)(q+19u-f);i<end;i++){
+                *o++=(char)f[i];
+                if(o==str+ROW_CHARS+g.cw){ emit(o); o=str; }
+            }
+            emit(o);
         }
+        /* the scroll limit: the last row fully shown, its blank bit 7 on the
+         * separator; 0 when compact or when the frame fits */
+        uint8_t lim=0;
+        if(!g.cw && g.vrow>4u) lim=(uint8_t)(g.vrow*8u-32u);
+        g.lim=lim;
+        /* an up mark while rows hide above, a down mark while rows hide below */
+        uint8_t mk=0;
+        if(g.top) mk=1u;
+        if(g.top<lim) mk+=2u;
+        if(mk && !g.fArm && g.status!=ST_TX)
+            A->asset_read((uint16_t)(BMP_SCROLL+(mk-1u)*BMP_SCROLL_W),A->status_line+SCROLL_X,BMP_SCROLL_W);
 
-        /* dotted separator above the frequency: y = 30, bit 6 of line 3 (the big
-         * digits start at y = 33) */
-        for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x40u;
+        /* Pixel scroll: lines 0-3 go up top%8 px, the bits below coming from
+         * the next line (an 8-bit shift of the next line gives 0 at top%8 = 0).
+         * Line 4 was only the source of line 3: cleared for the frequency. */
+        uint8_t sh=g.top&7u, *b=A->fb[0];
+        for(uint16_t k=0;k<512u;k++) b[k]=(uint8_t)((b[k]>>sh)|(b[k+128u]<<(8u-sh)));
+        memset(b+512,0,128);
+
+        /* dotted separator above the frequency: y = 31, bit 7 of line 3, over
+         * whatever the shift brought there (the big digits start at y = 33: one
+         * blank px between) */
+        for(uint8_t x=0;x<128u;x++) b[384u+x]=(uint8_t)((b[384u+x]&0x7Fu)|((~x&1u)<<7));
         drawFreq(A->tx_freq());
 
         /* bottom line: "lvl 66  tw +0  sent 3", or why nothing was sent */
@@ -387,15 +474,22 @@ static void send(void){
 static void handleKeys(void){
     const app_api_t *A=g.A;
     uint8_t key=A->get_key();
+    /* UP/DOWN, held, out of the editor: scroll 1 px per loop (25 px/s), from
+     * the source row to the last row fully shown (its blank bit 7 on the
+     * separator) */
+    if(!g.edit){
+        int8_t d=A->nav_dir(key);        /* g.lim: draw(), 0 when compact */
+        if((d<0 && g.top) || (d>0 && g.top<g.lim)){ g.top=(uint8_t)(g.top+d); g.redraw=true; }
+    }
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
     g.prevKey=key;
     g.redraw=true;                       /* a key changes the screen, a send too */
     A->backlight_on();
+    if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
+    bool back=g.fArm;                    /* F then a key: it goes backwards (down) */
+    g.fArm=false;
     if(g.edit){                          /* position, SSID and path editor */
         g.status=ST_IDLE;
-        if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
-        bool back=g.fArm;                /* F then a key: it goes backwards */
-        g.fArm=false;
         uint8_t cur=g.cur;
         bool lon=cur>CUR_NS && cur<=CUR_EW;   /* on the longitude line */
         if(key<=APP_KEY_9){
@@ -430,19 +524,22 @@ static void handleKeys(void){
     }
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_MENU||key==APP_KEY_PTT) send();
-    else if(key==APP_KEY_1){ if(g.tw>TW_MIN) g.tw--; }
-    else if(key==APP_KEY_3){ if(g.tw<TW_MAX) g.tw++; }
+    else if(key==APP_KEY_1){
+        if(back){ if(g.lvl>=LVL_MIN+LVL_STEP) g.lvl=(uint8_t)(g.lvl-LVL_STEP); }
+        else if(g.lvl<=LVL_MAX-LVL_STEP) g.lvl=(uint8_t)(g.lvl+LVL_STEP);
+    }
+    else if(key==APP_KEY_2){
+        if(back){ if(g.tw>TW_MIN) g.tw--; }
+        else if(g.tw<TW_MAX) g.tw++;
+    }
+    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view */
     else if(key==APP_KEY_5){
         memcpy(g.ed,g.pos,POS_DIGITS);
         g.ehemi=g.hemi; g.essid=g.ssid; g.epath=g.path;
         g.cur=0;
+        g.top=0;                         /* the frame may change: back to its top */
         g.edit=true;
         if(g.status!=ST_NOCALL) g.status=ST_IDLE;
-    }
-    else {
-        int8_t d=A->nav_dir(key);
-        if(d>0 && g.lvl<=LVL_MAX-LVL_STEP) g.lvl=(uint8_t)(g.lvl+LVL_STEP);
-        if(d<0 && g.lvl>=LVL_MIN+LVL_STEP) g.lvl=(uint8_t)(g.lvl-LVL_STEP);
     }
 }
 
@@ -467,6 +564,7 @@ void app_main(const app_api_t *api){
         if(posOk(g.ed) && h<=3u){ memcpy(g.pos,g.ed,POS_DIGITS); g.hemi=h; }
         h=c[10];                         /* 0x80 | path << 4 | SSID; erased (0xFF) or 0: defaults */
         if((h&0xC0u)==0x80u && ((h>>4)&3u)<=PATH_MAX){ g.ssid=(uint8_t)(h&15u); g.path=(uint8_t)((h>>4)&3u); }
+        if(c[11]==CW_COMPACT) g.cw=CW_COMPACT;
     }
     build();
     if(!g.flen) g.status=ST_NOCALL;
@@ -492,5 +590,6 @@ void app_main(const app_api_t *api){
     for(uint8_t i=0;i<POS_DIGITS;i++) c[3+i/2u]|=(uint8_t)(g.pos[i]<<((i&1u)*4u));
     c[9]|=(uint8_t)(g.hemi<<4);          /* the 14th nibble */
     c[10]=(uint8_t)(0x80u|(g.path<<4)|g.ssid);
+    c[11]=g.cw;
     api->cfg_save(c,CFG_LEN);
 }

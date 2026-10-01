@@ -47,7 +47,18 @@ a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_WAIT_CHARS", len(WAIT_CAPS))
 a.table("T_MSG", MIC_MSG)                    # Mic-E standard messages
-a.u8("BMP_SPEAKER", [0x1c,0x1c,0x3e,0x7f,0x00,0x22,0x1c,0x41,0x22,0x1c])   # FoxHunt's
+# The status bar from x = 59 (SPK_X), in one asset_read: the speaker icon
+# (bit 0 of the index), 3 blank columns, then the scroll marks at x = 72, up
+# (bit 1, rows hidden above) in bits 0-2, down (bit 2, rows hidden below) in
+# bits 4-6. 8 variants of TAIL_W bytes.
+SPK = [0x1c,0x1c,0x3e,0x7f,0x00,0x22,0x1c,0x41,0x22,0x1c]   # FoxHunt's
+UP, DN = [0x04, 0x06, 0x07, 0x06, 0x04], [0x10, 0x30, 0x70, 0x30, 0x10]
+tail = []
+for i in range(8):
+    tail += (SPK if i & 1 else [0] * len(SPK)) + [0] * 3
+    tail += [(u if i & 2 else 0) | (d if i & 4 else 0) for u, d in zip(UP, DN)]
+a.u8("BMP_TAIL", tail)
+a.const("TAIL_W", len(tail) // 8)
 a.i8("COS1200", cos_table(1200))            # 8 entries
 a.i8("COS2200", cos_table(2200))            # 48 entries
 a.main()

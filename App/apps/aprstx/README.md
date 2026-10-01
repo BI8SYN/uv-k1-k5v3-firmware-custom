@@ -32,10 +32,13 @@ transmit.
 | Key | Action |
 |---|---|
 | PTT or MENU | Send one frame |
-| UP / DOWN | Tone level (deviation): REG_70 gain 10-127, step 4, default 66 (the firmware's tone gain) |
-| 1 / 3 | Twist `tw` -4..+8: 2200 Hz gain = level × (8 + tw) / 8 (-6..+6 dB) |
+| UP / DOWN (held) | Scroll the frame above the separator 1 px per 40 ms loop (UV-K1: LEFT/RIGHT, as `nav_dir`). In the status bar (x = 72-76), ▲ while rows are hidden above and ▼ while rows are hidden below; while F is armed its icon (x = 70-78, centred on them) takes their place, and they are not drawn while transmitting (the `TRANSMIT` capsule ends at x = 72). It is shown in the small font, 18 characters a row, 4 rows at a time, as in APRS RX: source in bold, `>DEST,WIDE…` (a row breaks after a comma), latitude, longitude, then symbol and comment |
+| 1 / F then 1 | Tone level (deviation) up / down: REG_70 gain 10-127, step 4, default 66 (the firmware's tone gain) |
+| 2 / F then 2 | Twist `tw` up / down, -4..+8: 2200 Hz gain = level × (8 + tw) / 8 (-6..+6 dB) |
+| F | Arm the next key's down direction (1, 2), as FoxHunt's F; icon in the status bar while armed |
+| * | Scroll view / compact view (saved): compact shows the source in bold, then the path, the position `48 50.90N 002 16.25E`, the symbol and the comment in the tiny 3x5 font, 32 characters a row, without scroll |
 | 5 | Edit the position, SSID and path |
-| EXIT | Quit (level, twist, position, SSID and path are saved) |
+| EXIT | Quit (level, twist, position, SSID, path and view are saved) |
 
 ### Editor (v0.3)
 
@@ -69,10 +72,12 @@ Paths: `DIRECT` (heard only by the stations and iGates in range), `WIDE1-1` (one
 repeat by a nearby digipeater), `WIDE1-1,2-1` (`WIDE1-1,WIDE2-1`: the usual
 mobile / portable path, two repeats).
 
-Everything is saved on exit (`cfg_save`, 11 bytes: magic 0xA8, level, twist, 13
-digits and the hemispheres in nibbles, then `0x80 | path << 4 | SSID`). A v0.2
-config (10 bytes: byte 10 erased) keeps its position and takes the default SSID
-and path; a v0.1 config (magic 0xA7) is ignored: defaults.
+Everything is saved on exit (`cfg_save`, 12 bytes: magic 0xA8, level, twist, 13
+digits and the hemispheres in nibbles, `0x80 | path << 4 | SSID`, then the view:
+14 compact, anything else scroll). A v0.2 config (10 bytes: byte 10 erased)
+keeps its position and takes the default SSID and path; an 11-byte config
+(byte 11 erased) opens in the scroll view; a v0.1 config (magic 0xA7) is
+ignored: defaults.
 
 ## How it transmits
 
@@ -90,8 +95,8 @@ SPI writes, a few tens of µs out of 833. `tx_mute` + `tx_end` restore RX.
    2/3 with noise in STD); a hardware TNC such as the FT3D may be stricter.
 2. **Twist.** The tone probably enters after the pre-emphasis, so the signal is
    flat and a receiver with de-emphasis sees 2200 Hz ~5 dB low. If the FT3D
-   misses frames that APRS RX decodes, raise `tw` (key 3): +4 is +3.5 dB.
-3. **Deviation** at level 66: aim for ~3 kHz; UP/DOWN.
+   misses frames that APRS RX decodes, raise `tw` (key 2): +4 is +3.5 dB.
+3. **Deviation** at level 66: aim for ~3 kHz; 1 up, F then 1 down.
 
 ## Test plan
 
