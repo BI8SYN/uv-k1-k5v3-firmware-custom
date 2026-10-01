@@ -167,6 +167,8 @@ void *memcpy(void *d, const void *s, size_t n) {
 }
 
 /* ---- formatting ---- */
+/* Share the string-copy loop across the display formatters. */
+__attribute__((noinline))
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
 /* Formatting by repeated subtraction: no division. Values printed stay below 100000. */
 static uint8_t sub(uint32_t *v,uint32_t d){ uint8_t q=0; while(*v>=d){ *v-=d; q++; } return q; }
@@ -175,7 +177,7 @@ static char *puti(char *o,int32_t v){
     uint32_t u;
     if(v<0){*o++='-';u=(uint32_t)(-v);} else u=(uint32_t)v;
     bool lead=false;
-    for(uint8_t i=0;i<5;i++){
+    for(unsigned i=0;i<5u;i++){
         uint8_t c=sub(&u,P10[i]);
         if(c||lead||i==4u){ *o++=(char)('0'+c); lead=true; }
     }
@@ -398,6 +400,7 @@ static char *putCall(char *o,const uint8_t *a){
 }
 
 /* The tiny font covers 0x20-0x7F: anything else shows as '.'. */
+__attribute__((noinline))
 static char safe(uint8_t ch){ return (ch<0x20u||ch>0x7Eu)?'.':(char)ch; }
 
 /* One row str..end of the frame, wrapped every ROW_CHARS + g.cw (neither font
@@ -409,8 +412,8 @@ static char *emit(char *end){
     const app_api_t *A=g.A;
     char *p=str;
     while(p<end){
-        uint8_t w=(uint8_t)(ROW_CHARS+g.cw);   /* compare lengths: p + w may lie past str */
-        char *q=(end-p>w)?p+w:end;
+        unsigned w=ROW_CHARS+g.cw;   /* 18 or 32; compare lengths before forming p + w */
+        char *q=((unsigned)(end-p)>w)?p+w:end;
         char c=*q; *q='\0';
         uint8_t r=g.vrow, ln=(uint8_t)(r-(g.top>>3));    /* top = 0 when compact */
         if(g.cw && r){ if(r<5u) A->print_tiny(p,0,(uint8_t)(r*6u+2u),false,true); }
@@ -432,10 +435,11 @@ static char *brk(char *o){
 /* Info bytes f[i..end) after the text already at str..o, on as many rows as
  * they take. */
 static void textRows(char *o,const uint8_t *f,uint16_t i,uint16_t end){
+    const uint8_t *p=f+i, *last=f+end;
     do{
-        for(; o<str+ROW_CHARS+g.cw && i<end; i++) *o++=safe(f[i]);
+        for(; o<str+ROW_CHARS+g.cw && p<last; p++) *o++=safe(*p);
         o=emit(o);
-    }while(i<end);
+    }while(p<last);
 }
 
 /* ---- Mic-E (APRS 1.0.1 chapter 10; test/mice.py is the reference) ----
@@ -445,10 +449,12 @@ static void textRows(char *o,const uint8_t *f,uint16_t i,uint16_t end){
 static char *put2(char *o,uint32_t v){ *o++=(char)('0'+sub(&v,10u)); *o++=(char)('0'+v); return o; }
 static char *put3(char *o,uint32_t v){ *o++=(char)('0'+sub(&v,100u)); return put2(o,v); }
 static uint8_t micDigit(uint8_t c){
-    if(c>='0'&&c<='9') return (uint8_t)(c-'0');
-    if(c>='A'&&c<='J') return (uint8_t)(c-'A');
-    if(c>='P'&&c<='Y') return (uint8_t)(c-'P');
-    return 0;                                 /* K, L, Z: position ambiguity */
+    /* Fold P-Y onto A-J, then A-J onto 0-9; reject all other values. */
+    unsigned v=c;
+    if(v>='P') v-='P'-'A';
+    if(v>='A') v-='A'-'0';
+    v-='0';
+    return v<10u?(uint8_t)v:0;                 /* K, L, Z: position ambiguity */
 }
 static bool micBit(uint8_t c){ return c>='P' || (c>='A'&&c<='K'); }
 static bool micType(uint8_t t){ return t=='`'||t=='\''||t==0x1Cu||t==0x1Du; }
@@ -497,7 +503,7 @@ static void drawMicE(const uint8_t *f,uint16_t i,uint16_t end,const char *s){
     /* comment: trailing CR/LF, the device markers (Yaesu/other: '`' or '\'' +
      * text + 2 chars; Kenwood: '>' or ']' + text [+ '=' or '^']) and a leading
      * "xxx}" altitude (base 91, metres + 10000) */
-    uint16_t j=(uint16_t)(i+9u);
+    unsigned j=i+9u;                          /* the caller guarantees j <= end */
     while(end>j && (f[end-1]=='\r'||f[end-1]=='\n')) end--;
     if(j<end){
         uint8_t m=f[j];
@@ -520,7 +526,7 @@ static void drawMicE(const uint8_t *f,uint16_t i,uint16_t end,const char *s){
  * two rows in the scroll view, "49 21.07N" / "001 50.50E", one when compact. ---- */
 static bool drawPos(const uint8_t *f,uint16_t i,uint16_t end){
     uint8_t t=f[i];
-    uint16_t p=(uint16_t)(i+1u);
+    unsigned p=i+1u;                         /* native-width offset; bounds checked below */
     if(t=='/'||t=='@') p+=7u;
     else if(t!='!'&&t!='=') return false;
     if(end<p+19u || f[p+4]!='.' || f[p+14]!='.') return false;
@@ -532,7 +538,11 @@ static bool drawPos(const uint8_t *f,uint16_t i,uint16_t end){
         *o++=safe(q[k]);
     }
     o=emit(o);
-    if(p>i+1u){ for(uint16_t k=(uint16_t)(i+1u);k<p;k++) *o++=safe(f[k]); *o++=' '; }
+    if(p>i+1u){
+        /* A timestamp always occupies the seven bytes after the data type. */
+        for(unsigned k=0;k<7u;k++) *o++=safe(f[i+1u+k]);
+        *o++=' ';
+    }
     *o++=safe(q[8]); *o++=safe(q[18]); *o++=' ';
     textRows(o,f,(uint16_t)(p+19u),end);
     return true;
