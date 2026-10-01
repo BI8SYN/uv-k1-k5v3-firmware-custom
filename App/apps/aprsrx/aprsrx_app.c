@@ -72,6 +72,8 @@
 #define HOUSE_EVERY    480u    /* samples between key/screen slots (50 ms)       */
 #define BUSY_MAX       60u     /* serve them anyway after 60 busy slots (3 s)    */
 #define REFRESH_MS     5000u   /* periodic redraw (battery)                      */
+#define REDRAW_ON      1u      /* g.redraw: a key or the periodic refresh        */
+#define REDRAW_FRAME   2u      /* g.redraw: a new frame, also wakes the backlight */
 #define DUP_MS         1000u   /* the same frame from another slicer             */
 
 /* ---- BK4829 ---- */
@@ -102,9 +104,16 @@ typedef struct {
     int32_t  im, qm, is, qs;           /* sliding correlator sums                 */
     int32_t  pm, ps;                   /* per-tone magnitude peaks (AGC)          */
     int16_t  ring[8][4];               /* the products of the last bit            */
-    uint8_t  r, km, ks;                /* ring slot, table phases                 */
+    uint8_t  r, ks;                    /* ring slot = 1200 Hz phase, 2200 Hz phase */
     int8_t   cm[8], cs[48];            /* cos tables (assets)                     */
 } dem_t;
+/* listen() loads both tables in one asset_read: they must stay back to back,
+ * in the assets as in dem_t. */
+_Static_assert(COS2200==COS1200+COS1200_LEN &&
+               sizeof(((dem_t *)0)->cm)==COS1200_LEN &&
+               sizeof(((dem_t *)0)->cs)==COS2200_LEN &&
+               offsetof(dem_t,cs)==offsetof(dem_t,cm)+COS1200_LEN,
+               "cos tables must stay contiguous");
 
 /* one slicer: decision weights, DPLL, NRZI, HDLC */
 typedef struct {
@@ -113,25 +122,27 @@ typedef struct {
     uint8_t  wa, wb, last;             /* mark/space weights, last level          */
     uint8_t  sr, ones, byte, nb;       /* HDLC: shift reg, 1 run, byte, bit count */
     uint8_t  inframe, hdr;             /* between flags, first bytes look like a call */
-    uint8_t  bits, pre;                /* bits since the last flag, back-to-back flags */
+    uint8_t  bits;                     /* bits since the last flag                */
+    bool     pre;                      /* this flag came right after another one  */
     uint8_t  buf[FRAME_MAX];
 } sl_t;
 
 /* The app state in one struct: a function loads one base address instead of one
- * literal-pool word per global. Words, then bytes, then halfwords, so every field
+ * literal-pool word per global. Bytes, then halfwords, then words, so every field
  * stays within the Thumb load/store immediate ranges (ldrb <= 31, ldrh <= 62,
- * ldr <= 124). The loader zeroes the overlay (.bss) at every launch. */
+ * ldr <= 124); the registers saved for the exit, used twice, go last.
+ * The loader zeroes the overlay (.bss) at every launch. */
 static struct {
+    uint8_t  seq, prevKey, redraw, spk; /* spk: speaker amplifier on (key 1)    */
+    bool     running;
+    int16_t  rssi;                     /* RSSI at the end of the last frame       */
+    uint16_t flen, nOk;                /* frame length, frames                    */
     const app_api_t *A;
     uint8_t *frm;                      /* last good frame (app_main's stack)      */
     uint32_t vfoFreq;                  /* VFO RX frequency at launch, 10 Hz units */
     uint32_t tPrev, tCyc;              /* SysTick cycle counter                   */
     uint32_t tFrame, tDraw;            /* ticks_ms of the last frame, last redraw */
     uint32_t savedSqr3, savedSmpr3, savedModer, savedDac, savedRcc, savedDhr;
-    uint8_t  seq, prevKey, redraw, spk; /* spk: speaker amplifier on (key 1)    */
-    bool     running;
-    int16_t  rssi;                     /* RSSI at the end of the last frame       */
-    uint16_t flen, nOk;                /* frame length, frames                    */
 } g;
 static char str[34];
 
@@ -239,27 +250,44 @@ static bool isUI(const uint8_t *f,uint16_t n){
     return (f[e]&1u) && e+2u<end && f[e+1]==0x03u && f[e+2]==0xF0u;
 }
 
-/* ---- HDLC: one bit after NRZI. True when a UI frame with a good FCS just
- * ended (m->buf, m->n bytes, until the next byte). ---- */
-static bool hdlcBit(sl_t *m,uint8_t b){
+/* ---- a good frame from a slicer: shown unless another slicer just gave it ---- */
+static void accept(const sl_t *m){
+    const app_api_t *A=g.A;
+    uint16_t n=m->n;
+    uint32_t t=A->ticks_ms();
+    if(!(n==g.flen && g.frm[n-1]==m->buf[n-1] && g.frm[n-2]==m->buf[n-2]
+         && t-g.tFrame<DUP_MS)){
+        memcpy(g.frm,m->buf,n);
+        g.flen=n;
+        if(g.nOk<COUNT_MAX) g.nOk++;
+        g.seq++;
+        g.rssi=A->rssi_dbm();              /* the carrier is still up: closing flags */
+        g.redraw|=REDRAW_FRAME;
+    }
+    g.tFrame=t;
+}
+
+/* ---- HDLC: one bit after NRZI. A UI frame with a good FCS goes to accept()
+ * (m->buf, m->n bytes) before the closing flag opens the next frame. ---- */
+static void hdlcBit(sl_t *m,uint8_t b){
     if(m->bits<255u) m->bits++;
     m->sr=(uint8_t)((m->sr>>1)|(b<<7));
     if(m->sr==0x7Eu){
         bool ok = m->inframe && m->n>=FRAME_MIN && m->crc==FCS_GOOD && isUI(m->buf,m->n);
-        m->pre = m->bits==8u ? (uint8_t)(m->pre<255u?m->pre+1u:255u) : 0;
+        m->pre = m->bits==8u;
         m->bits=0;
-        if(ok) return true;                   /* n kept for the caller, reset below */
+        if(ok) accept(m);
         m->inframe=1; m->hdr=1; m->n=0; m->crc=0xFFFFu;
         m->ones=m->byte=m->nb=0;
-        return false;
+        return;
     }
     if(b){
-        if(++m->ones>6u){ m->ones=7; m->inframe=0; return false; }   /* abort / noise */
+        if(++m->ones>6u){ m->ones=7; m->inframe=0; return; }   /* abort / noise */
     } else {
-        if(m->ones==5u){ m->ones=0; return false; }                 /* stuffed zero  */
+        if(m->ones==5u){ m->ones=0; return; }                 /* stuffed zero  */
         m->ones=0;
     }
-    if(!m->inframe) return false;
+    if(!m->inframe) return;
     m->byte|=(uint8_t)(b<<m->nb);
     if(++m->nb==8u){
         if(m->n<FRAME_MAX){
@@ -271,7 +299,6 @@ static bool hdlcBit(sl_t *m,uint8_t b){
         } else m->inframe=0;
         m->byte=m->nb=0;
     }
-    return false;
 }
 
 /* A slicer is busy inside a preamble (two back-to-back flags, then 3 bytes) or
@@ -288,6 +315,17 @@ static int32_t mag(int32_t i,int32_t q){
     return i+(q>>2)+(q>>3);
 }
 
+/* Magnitude of one tone and its peak tracker (AGC). Not inlined: one copy for
+ * both tones, two calls per sample. */
+__attribute__((noinline))
+static int32_t tone(int32_t i,int32_t q,int32_t *pk){
+    int32_t mt=mag(i,q), p=*pk;
+    p+= mt>p ? (mt-p)>>AGC_ATT : -(p>>AGC_DEC);
+    if(p<PK_MIN) p=PK_MIN;
+    *pk=p;
+    return mt;
+}
+
 /* ---- front end, one ADC sample: *a = Mm*Ps, *b = Ms*Pm (each tone over its
  * own peak, without division; both stay below ~2^21) ---- */
 static void front(dem_t *m,int32_t adc,int32_t *a,int32_t *b){
@@ -296,29 +334,26 @@ static void front(dem_t *m,int32_t adc,int32_t *a,int32_t *b){
     int32_t y=(BP_B0*(x-m->x2)-BP_A1*m->y1-BP_A2*m->y2)>>14;
     m->x2=m->x1; m->x1=x; m->y2=m->y1; m->y1=y;
 
-    /* sliding correlators over one bit; the sine is the cos table 3/4 period ahead */
+    /* sliding correlators over one bit; the sine is the cos table 3/4 period ahead.
+     * At 9.6 kHz one bit and one 1200 Hz period are both 8 samples: the ring slot
+     * is also the 1200 Hz table phase. */
     int16_t *o=m->ring[m->r];
     uint8_t k=(uint8_t)(m->ks+12u); if(k>=48u) k-=48u;
     int32_t p;
-    p=(y*m->cm[m->km])>>8;              m->im+=p-o[0]; o[0]=(int16_t)p;
-    p=(y*m->cm[(m->km+6u)&7u])>>8;      m->qm+=p-o[1]; o[1]=(int16_t)p;
+    p=(y*m->cm[m->r])>>8;               m->im+=p-o[0]; o[0]=(int16_t)p;
+    p=(y*m->cm[(m->r+6u)&7u])>>8;       m->qm+=p-o[1]; o[1]=(int16_t)p;
     p=(y*m->cs[m->ks])>>8;              m->is+=p-o[2]; o[2]=(int16_t)p;
     p=(y*m->cs[k])>>8;                  m->qs+=p-o[3]; o[3]=(int16_t)p;
     m->r=(uint8_t)((m->r+1u)&7u);
-    m->km=(uint8_t)((m->km+1u)&7u);
     if(++m->ks>=48u) m->ks=0;
 
-    int32_t mm=mag(m->im,m->qm), ms=mag(m->is,m->qs);
-    m->pm+= mm>m->pm ? (mm-m->pm)>>AGC_ATT : -(m->pm>>AGC_DEC);
-    m->ps+= ms>m->ps ? (ms-m->ps)>>AGC_ATT : -(m->ps>>AGC_DEC);
-    if(m->pm<PK_MIN) m->pm=PK_MIN;
-    if(m->ps<PK_MIN) m->ps=PK_MIN;
+    int32_t mm=tone(m->im,m->qm,&m->pm), ms=tone(m->is,m->qs,&m->ps);
     *a=mm*m->ps;
     *b=ms*m->pm;
 }
 
 /* ---- slicer: decision sign(wa*a - wb*b), DPLL, NRZI, HDLC ---- */
-static bool slice(sl_t *m,int32_t a,int32_t b){
+static void slice(sl_t *m,int32_t a,int32_t b){
     int32_t d=a*m->wa-b*m->wb;
     /* DPLL: a bit at each phase wrap (mid-bit), transitions pulled to mid-phase */
     m->phase+=PLL_STEP;
@@ -327,30 +362,9 @@ static bool slice(sl_t *m,int32_t a,int32_t b){
     if(m->phase>=65536){
         m->phase-=65536;
         uint8_t lv=d>0;
-        bool r=hdlcBit(m,lv==m->last);    /* NRZI: no change = 1 */
+        hdlcBit(m,lv==m->last);           /* NRZI: no change = 1 */
         m->last=lv;
-        return r;
     }
-    return false;
-}
-
-/* ---- a good frame from a slicer: shown unless another slicer just gave it ---- */
-static void accept(sl_t *m){
-    const app_api_t *A=g.A;
-    uint16_t n=m->n;
-    uint32_t t=A->ticks_ms();
-    if(!(n==g.flen && g.frm[n-1]==m->buf[n-1] && g.frm[n-2]==m->buf[n-2]
-         && t-g.tFrame<DUP_MS)){
-        memcpy(g.frm,m->buf,n);
-        g.flen=n;
-        if(g.nOk<COUNT_MAX) g.nOk++;
-        g.seq++;
-        g.rssi=A->rssi_dbm();              /* the carrier is still up: closing flags */
-        g.redraw=1;
-    }
-    g.tFrame=t;
-    m->inframe=1; m->hdr=1; m->n=0; m->crc=0xFFFFu;   /* this flag opens the next frame */
-    m->ones=m->byte=m->nb=0;
 }
 
 /* ---- AX.25 address field -> "F4HWN-7" ---- */
@@ -529,7 +543,7 @@ static void handleKeys(void){
     uint8_t key=A->get_key();
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
     g.prevKey=key;
-    g.redraw=1;
+    g.redraw|=REDRAW_ON;
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_MENU){ g.flen=0; g.nOk=0; g.seq=0; g.rssi=0; }
     else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
@@ -540,9 +554,10 @@ static void house(void){
     const app_api_t *A=g.A;
     handleKeys();
     if(!g.running) return;
-    A->backlight_on();         /* keep the screen lit while listening */
+    if(g.redraw&REDRAW_FRAME) A->backlight_on();   /* wake on a new frame */
+    A->backlight_update();     /* normal BLTime timeout; keys re-arm it in get_key() */
     uint32_t t=A->ticks_ms();
-    if(t-g.tDraw>=REFRESH_MS) g.redraw=1;
+    if(t-g.tDraw>=REFRESH_MS) g.redraw|=REDRAW_ON;
     if(!g.redraw) return;
     g.redraw=0;
     g.tDraw=t;
@@ -561,8 +576,7 @@ static void listen(void){
     sl_t sl[NSL];
     memset(&d,0,sizeof d);
     memset(sl,0,sizeof sl);
-    A->asset_read(COS1200,d.cm,COS1200_LEN);
-    A->asset_read(COS2200,d.cs,COS2200_LEN);
+    A->asset_read(COS1200,d.cm,COS1200_LEN+COS2200_LEN);   /* cm then cs */
     d.dc=(int32_t)BIAS_CODE<<4;
     d.pm=d.ps=64;
     sl[0].wa=2; sl[0].wb=3;      /* favours space */
@@ -575,19 +589,17 @@ static void listen(void){
     uint32_t next=CYC_PER_SAMPLE;
     uint16_t cnt=0;
     uint8_t busyFor=0;
-    g.redraw=1;
+    g.redraw=REDRAW_ON;
     while(g.running){
         while((int32_t)(clkCyc()-next)<0){}
         next+=CYC_PER_SAMPLE;
         int32_t a,b;
         front(&d,adcRead(),&a,&b);
-        bool bz=false;
-        for(uint8_t k=0;k<NSL;k++){
-            if(slice(&sl[k],a,b)) accept(&sl[k]);
-            bz|=busy(&sl[k]);
-        }
+        for(uint8_t k=0;k<NSL;k++) slice(&sl[k],a,b);
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
+        bool bz=false;                  /* only the slot's own sample decides */
+        for(uint8_t k=0;k<NSL;k++) bz|=busy(&sl[k]);
         if(bz && ++busyFor<BUSY_MAX) continue;
         busyFor=0;
         house();

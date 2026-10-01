@@ -18,11 +18,12 @@
  * APRS TX - sends one APRS position frame (AX.25 UI frame, Bell 202 AFSK
  * 1200 bauds) on the TX VFO at each press of PTT or MENU.
  *
- * The source is the boot-message callsign (API boot_callsign) with the SSID of
- * gen_assets.py; destination, path, symbol and comment are AX.25-encoded there
- * too (assets). The position is edited on the radio (key 5: 13 digits typed in
- * a row, as a frequency) and saved; gen_assets.py holds the default. The frame
- * is built at launch and after each edit, FCS included.
+ * The source is the boot-message callsign (API boot_callsign) with an SSID;
+ * destination, the WIDE path entries, symbol and comment are AX.25-encoded in
+ * gen_assets.py (assets). The position, the SSID and the path (DIRECT, WIDE1-1
+ * or WIDE1-1,WIDE2-1) are edited on the radio (key 5) and saved; gen_assets.py
+ * holds the defaults. The frame is built at launch and after each edit, FCS
+ * included.
  *
  * AFSK comes from the BK4829 tone generator, as the Beacon app keys MCW: the tone
  * frequency (REG_71) is rewritten at each NRZI transition, 1200 Hz mark / 2200 Hz
@@ -33,12 +34,14 @@
  *
  * Keys (UV-K5 and UV-K1): PTT or MENU send · UP/DOWN tone level (deviation,
  *   REG_70 gain 10-127) · 1/3 twist: 2200 Hz gain = level x (8 + tw) / 8,
- *   tw -4..+8 (-6..+6 dB), for a receiver's de-emphasis · 5 edit the position
- *   · EXIT quit.
- * Position editor: 0-9 type a digit (the cursor skips the separators and moves
- *   on) · * toggle N/S or E/W on the cursor's line · UP/DOWN move the cursor ·
+ *   tw -4..+8 (-6..+6 dB), for a receiver's de-emphasis · 5 edit the position,
+ *   SSID and path · EXIT quit.
+ * Editor (the field under the cursor in bold): 0-9 type a digit (the cursor
+ *   skips the separators and N/S, and moves on) · * toggle N/S or E/W on the
+ *   position lines, next SSID or path on theirs · F then * the previous SSID or
+ *   path · UP/DOWN move the cursor (6 digits, N/S, 7 digits, E/W, SSID, path) ·
  *   MENU check and keep · EXIT cancel.
- * Level, twist and position are saved on exit (cfg_save, 10 bytes).
+ * Level, twist, position, SSID and path are saved on exit (cfg_save, 11 bytes).
  */
 
 #include <stdint.h>
@@ -71,29 +74,45 @@
 #define TAIL_FLAGS  3u
 #define CALL_MAX    6u
 #define INFO_LEN    (1u + 8u + 1u + 9u + 1u + F_COMMENT_LEN)   /* !lat/lon[comment */
-#define FRAME_MAX   (7u + 7u + F_PATH_LEN + 2u + INFO_LEN + 2u)
+#define PATH_MAX    2u     /* WIDE entries: 0 = DIRECT                        */
+#define FRAME_MAX   (7u + 7u + PATH_MAX * 7u + 2u + INFO_LEN + 2u)
 
 /* position: 13 digits DDMMhh DDDMMhh, hemispheres bit 0 south, bit 1 west */
 #define POS_DIGITS  13u
 #define LAT_DIGITS  6u
 #define TX_CAPS_X   40u    /* "TRANSMIT" capsule in the status bar, after the title */
+/* editor cursor stops: 0-5 the latitude digits, N/S, 7-13 the longitude
+ * digits, E/W, SSID, path */
+#define CUR_NS      LAT_DIGITS
+#define CUR_EW      (POS_DIGITS + 1u)
+#define CUR_SSID    (CUR_EW + 1u)
+#define CUR_PATH    (CUR_EW + 2u)
+#define FIELD_COL   5u     /* "SSID " / "PATH ": the value's column             */
 #define CFG_MAGIC   0xA8u  /* 0xA7 (v0.1: level and twist only) is ignored */
-#define CFG_LEN     10u    /* magic, level, twist, 13 digits + hemispheres in nibbles */
+#define CFG_LEN     11u    /* magic, level, twist, 13 digits + hemispheres in nibbles,
+                              then 0x80 | path << 4 | SSID (v0.2 configs: defaults) */
+#define LOOP_MS     40u
+#define REFRESH_LOOPS 125u /* a redraw every 5 s without a key (battery)       */
 
 enum { ST_IDLE = 0, ST_TX, ST_DENIED, ST_NOCALL, ST_BADPOS };
 
 /* The app state in one struct: a function loads one base address instead of one
- * literal-pool word per global. Words, then bytes. The loader zeroes the overlay
- * (.bss) at every launch. */
+ * literal-pool word per global. Bytes, then the halfword, then words, so every
+ * field stays within the Thumb load/store immediate ranges (ldrb <= 31, ldrh <= 62,
+ * ldr <= 124); the arrays, addressed from their base, go last. The loader zeroes
+ * the overlay (.bss) at every launch. */
 static struct {
+    uint8_t  flen, prevKey, space, ones, lvl, status;
+    int8_t   tw;
+    bool     running, edit, redraw;    /* redraw: draw() at the next loop         */
+    bool     fArm;                     /* editor: F pressed, the next key goes back */
+    uint8_t  hemi, ehemi, cur;         /* hemispheres, edited ones, editor cursor */
+    uint8_t  ssid, essid, path, epath; /* source SSID, path, and the edited ones  */
+    uint8_t  tick;                     /* loops since the last draw()             */
+    uint16_t sent;                     /* frames sent                             */
     const app_api_t *A;
     uint8_t *frm;                      /* the frame (app_main's stack)            */
     uint32_t tPrev, tCyc, next;        /* SysTick cycle counter, next bit edge    */
-    uint16_t sent;                     /* frames sent                             */
-    uint8_t  flen, prevKey, space, ones, lvl, status;
-    int8_t   tw;
-    bool     running, edit;
-    uint8_t  hemi, ehemi, cur;         /* hemispheres, edited ones, cursor digit  */
     uint8_t  pos[POS_DIGITS];          /* the position sent                       */
     uint8_t  ed[POS_DIGITS];           /* the position being edited               */
 } g;
@@ -184,9 +203,9 @@ static void build(void){
 
     A->asset_read(F_DEST,f,F_DEST_LEN);
     for(uint8_t i=0;i<6u;i++) f[7+i]=(uint8_t)((i<n?call[i]:' ')<<1);
-    f[13]=(uint8_t)(0x60u|(CFG_SSID<<1)|(F_PATH_LEN?0u:1u));   /* end bit if no path */
-    uint8_t k=14;
-    A->asset_read(F_PATH,f+k,F_PATH_LEN); k+=F_PATH_LEN;
+    f[13]=(uint8_t)(0x60u|(g.ssid<<1)|(g.path?0u:1u));        /* end bit if DIRECT */
+    uint8_t k=(uint8_t)(14u+g.path*7u);                        /* the first path WIDEs */
+    if(g.path){ A->asset_read(F_WIDE,f+14,(uint16_t)(k-14u)); f[k-1]|=1u; }
     f[k++]=0x03; f[k++]=0xF0;                                  /* UI frame, no layer 3 */
     uint8_t sym[2];
     A->asset_read(F_SYM,sym,2);
@@ -243,8 +262,10 @@ static void sendByte(uint8_t v,bool stuff){
     }
 }
 
-/* "LAT  48 50.90 N" on a normal-font line (7 px per character), and a '^' under
- * the digit at cursor cur (-1: none) */
+/* "LAT  48 50.90 N" on a normal-font line (7 px per character). The line's
+ * cursor stops are its n digits then the hemisphere (cur = n); the one under cur
+ * is redrawn in bold (glyphs overwrite their columns). A cursor off the line
+ * (negative, or past the hemisphere) shows none. */
 static void editRow(const char *label,uint8_t line,const uint8_t *d,uint8_t n,char h,int8_t cur){
     char *o=put(str,label);
     uint8_t col=0;
@@ -254,9 +275,20 @@ static void editRow(const char *label,uint8_t line,const uint8_t *d,uint8_t n,ch
         if((int8_t)i==cur) col=(uint8_t)(o-str);
         *o++=(char)('0'+d[i]);
     }
-    *o++=' '; *o++=h; *o='\0';
+    *o++=' ';
+    if((int8_t)n==cur) col=(uint8_t)(o-str);
+    *o++=h; *o='\0';
     g.A->print_normal(str,0,0,line);
-    if(cur>=0){ str[0]='^'; str[1]='\0'; g.A->print_tiny(str,(uint8_t)(col*7u+2u),(uint8_t)(line*8u+9u),false,true); }
+    if((uint8_t)cur<=n){ str[0]=str[col]; str[1]='\0'; g.A->print_bold(str,(uint8_t)(col*7u),0,line); }
+}
+
+/* "SSID 7" / "PATH WIDE1-1" on a normal-font line, the value in bold when the
+ * cursor is on it */
+static void fieldRow(const char *label,const char *val,uint8_t line,bool sel){
+    char *o=put(put(str,label),val);
+    *o='\0';
+    g.A->print_normal(str,0,0,line);
+    if(sel) g.A->print_bold(val,FIELD_COL*7u,0,line);
 }
 
 /* ---- display ---- */
@@ -272,49 +304,53 @@ static void draw(void){
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     if(g.status==ST_TX)                  /* a second capsule while on the air */
         A->print_inverse(s+T_TX,TX_CAPS_X,0,true,true,(uint8_t)(TX_CAPS_X+T_TX_CHARS*4u));
+    if(g.fArm)                           /* editor: F armed, as FoxHunt / FM / Beacon */
+        A->asset_read(BMP_F,A->status_line+70,BMP_F_LEN);
     A->draw_battery();
 
     if(g.edit){
-        int8_t c=(int8_t)g.cur;
-        editRow(s+T_LAT,1,g.ed,LAT_DIGITS,(g.ehemi&1u)?'S':'N',c<(int8_t)LAT_DIGITS?c:-1);
-        editRow(s+T_LON,3,g.ed+LAT_DIGITS,POS_DIGITS-LAT_DIGITS,(g.ehemi&2u)?'W':'E',
-                c>=(int8_t)LAT_DIGITS?(int8_t)(c-(int8_t)LAT_DIGITS):-1);
+        int8_t c=(int8_t)g.cur;            /* each line takes its own stops from it */
+        editRow(s+T_LAT,0,g.ed,LAT_DIGITS,(g.ehemi&1u)?'S':'N',c);
+        editRow(s+T_LON,1,g.ed+LAT_DIGITS,POS_DIGITS-LAT_DIGITS,(g.ehemi&2u)?'W':'E',
+                (int8_t)(c-(int8_t)(CUR_NS+1u)));
+        char v[3];
+        *puti(v,g.essid)='\0';
+        fieldRow(s+T_SSID,v,2,g.cur==CUR_SSID);
+        fieldRow(s+T_PATH,s+T_PATHS+g.epath*T_PATHS_STRIDE,3,g.cur==CUR_PATH);
         tiny(40,put(str,s+T_HELP1));
         tiny(48,put(str,g.status==ST_BADPOS?s+T_BADPOS:s+T_HELP2));
-        A->blit_status();
-        A->blit_full();
-        return;
-    }
-
-    if(g.flen){
-        const uint8_t *f=g.frm;
-        o=putCall(str,f+7); *o='\0';
-        A->print_normal(str,0,0,0);              /* source */
-        o=str; *o++='>'; o=putCall(o,f);
-        for(uint8_t e=13; !(f[e]&1u); ){ e+=7; *o++=','; o=putCall(o,f+e-6); }
-        tiny(9,o);                               /* ">APZK5,WIDE1-1" (<= 2 hops) */
-        uint8_t i=(uint8_t)(14u+F_PATH_LEN+2u), end=(uint8_t)(g.flen-2u);   /* info */
-        for(uint8_t row=0;row<2u;row++){         /* info (<= 64), 2 rows of 32 */
-            o=str;
-            for(; o<str+32 && i<end; i++) *o++=(char)f[i];
-            tiny((uint8_t)(17u+row*7u),o);
+    } else {
+        if(g.flen){
+            const uint8_t *f=g.frm;
+            o=putCall(str,f+7); *o='\0';
+            A->print_normal(str,0,0,0);              /* source */
+            o=str; *o++='>'; o=putCall(o,f);
+            uint8_t e=13;                            /* the last address byte */
+            while(!(f[e]&1u)){ e+=7; *o++=','; o=putCall(o,f+e-6); }
+            tiny(9,o);                               /* ">APZK5,WIDE1-1,WIDE2-1" (<= 2 hops) */
+            uint8_t i=(uint8_t)(e+3u), end=(uint8_t)(g.flen-2u);   /* info, after control + PID */
+            for(uint8_t row=0;row<2u;row++){         /* info (<= 64), 2 rows of 32 */
+                o=str;
+                for(; o<str+32 && i<end; i++) *o++=(char)f[i];
+                tiny((uint8_t)(17u+row*7u),o);
+            }
         }
-    }
 
-    /* dotted separator above the frequency: y = 30, bit 6 of line 3 (the big
-     * digits start at y = 33) */
-    for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x40u;
-    drawFreq(A->tx_freq());
+        /* dotted separator above the frequency: y = 30, bit 6 of line 3 (the big
+         * digits start at y = 33) */
+        for(uint8_t x=0;x<128u;x+=2u) A->fb[3][x]|=0x40u;
+        drawFreq(A->tx_freq());
 
-    /* bottom line: "lvl 66  tw +0  sent 3", or why nothing was sent */
-    if(g.status==ST_DENIED||g.status==ST_NOCALL)
-        o=put(str,g.status==ST_DENIED?s+T_DENIED:s+T_NOCALL);
-    else {
-        o=put(str,s+T_LVL); o=puti(o,g.lvl);
-        o=put(o,s+T_TW); if(g.tw>0) *o++='+'; o=puti(o,g.tw);
-        o=put(o,s+T_SENT); o=puti(o,g.sent);
+        /* bottom line: "lvl 66  tw +0  sent 3", or why nothing was sent */
+        if(g.status==ST_DENIED||g.status==ST_NOCALL)
+            o=put(str,g.status==ST_DENIED?s+T_DENIED:s+T_NOCALL);
+        else {
+            o=put(str,s+T_LVL); o=puti(o,g.lvl);
+            o=put(o,s+T_TW); if(g.tw>0) *o++='+'; o=puti(o,g.tw);
+            o=put(o,s+T_SENT); o=puti(o,g.sent);
+        }
+        tiny(49,o);
     }
-    tiny(49,o);
 
     A->blit_status();
     A->blit_full();
@@ -353,15 +389,33 @@ static void handleKeys(void){
     uint8_t key=A->get_key();
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
     g.prevKey=key;
+    g.redraw=true;                       /* a key changes the screen, a send too */
     A->backlight_on();
-    if(g.edit){                          /* position editor */
+    if(g.edit){                          /* position, SSID and path editor */
         g.status=ST_IDLE;
-        if(key<=APP_KEY_9){ g.ed[g.cur]=key; if(g.cur<POS_DIGITS-1u) g.cur++; }
-        else if(key==APP_KEY_STAR) g.ehemi^=(uint8_t)(g.cur<LAT_DIGITS?1u:2u);
+        if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
+        bool back=g.fArm;                /* F then a key: it goes backwards */
+        g.fArm=false;
+        uint8_t cur=g.cur;
+        bool lon=cur>CUR_NS && cur<=CUR_EW;   /* on the longitude line */
+        if(key<=APP_KEY_9){
+            if(cur<CUR_NS || (lon && cur<CUR_EW)){   /* a digit: its stop is one past it on LON */
+                g.ed[cur-lon]=key;
+                if(++cur==CUR_NS) cur++;        /* typing goes on past N/S ...          */
+                if(cur==CUR_EW) cur--;          /* ... and stays on the last digit      */
+                g.cur=cur;
+            }
+        }
+        else if(key==APP_KEY_STAR){
+            if(cur<=CUR_EW) g.ehemi^=(uint8_t)(lon?2u:1u);   /* on a digit or the letter */
+            else if(cur==CUR_SSID) g.essid=(uint8_t)((g.essid+(back?15u:1u))&15u);
+            else if(back) g.epath=(uint8_t)(g.epath?g.epath-1u:PATH_MAX);
+            else g.epath=(uint8_t)(g.epath<PATH_MAX?g.epath+1u:0u);
+        }
         else if(key==APP_KEY_MENU){
             if(!posOk(g.ed)){ g.status=ST_BADPOS; return; }
             memcpy(g.pos,g.ed,POS_DIGITS);
-            g.hemi=g.ehemi;
+            g.hemi=g.ehemi; g.ssid=g.essid; g.path=g.epath;
             g.edit=false;
             build();
             if(!g.flen) g.status=ST_NOCALL;
@@ -370,7 +424,7 @@ static void handleKeys(void){
         else {
             int8_t d=A->nav_dir(key);
             if(d<0 && g.cur) g.cur--;
-            if(d>0 && g.cur<POS_DIGITS-1u) g.cur++;
+            if(d>0 && g.cur<CUR_PATH) g.cur++;
         }
         return;
     }
@@ -380,7 +434,7 @@ static void handleKeys(void){
     else if(key==APP_KEY_3){ if(g.tw<TW_MAX) g.tw++; }
     else if(key==APP_KEY_5){
         memcpy(g.ed,g.pos,POS_DIGITS);
-        g.ehemi=g.hemi;
+        g.ehemi=g.hemi; g.essid=g.ssid; g.epath=g.path;
         g.cur=0;
         g.edit=true;
         if(g.status!=ST_NOCALL) g.status=ST_IDLE;
@@ -400,6 +454,8 @@ void app_main(const app_api_t *api){
     g.frm=frm;
     g.prevKey=APP_KEY_INVALID;   /* the rest of g starts at 0 (overlay zeroed by the loader) */
     g.lvl=LVL_DEF;
+    g.ssid=CFG_SSID;
+    g.path=CFG_PATH;
     api->asset_read(POS_DEF,g.pos,POS_DIGITS);
     api->asset_read(POS_DEF+POS_DIGITS,&g.hemi,1);
     api->cfg_load(c,CFG_LEN);
@@ -409,23 +465,32 @@ void app_main(const app_api_t *api){
         for(uint8_t i=0;i<POS_DIGITS;i++) g.ed[i]=(uint8_t)((c[3+i/2u]>>((i&1u)*4u))&15u);
         uint8_t h=(uint8_t)(c[9]>>4);
         if(posOk(g.ed) && h<=3u){ memcpy(g.pos,g.ed,POS_DIGITS); g.hemi=h; }
+        h=c[10];                         /* 0x80 | path << 4 | SSID; erased (0xFF) or 0: defaults */
+        if((h&0xC0u)==0x80u && ((h>>4)&3u)<=PATH_MAX){ g.ssid=(uint8_t)(h&15u); g.path=(uint8_t)((h>>4)&3u); }
     }
     build();
     if(!g.flen) g.status=ST_NOCALL;
     api->backlight_on();
 
     g.running=true;
+    g.redraw=true;
     while(g.running){
         handleKeys();
         if(!g.running) break;
-        draw();
+        /* The screen only changes on a key (or a send it starts): redraw then,
+         * and every 5 s for the battery, not at each loop. The state stays in g:
+         * locals here would live on the stack across the inlined calls. */
+        if(++g.tick>=REFRESH_LOOPS) g.redraw=true;
+        if(g.redraw){ g.redraw=false; g.tick=0; draw(); }
         api->battery_sample();
-        api->delay_ms(40);
+        api->delay_ms(LOOP_MS);
+        api->backlight_update();     /* normal BLTime timeout; keys re-arm it */
     }
 
     c[0]=CFG_MAGIC; c[1]=g.lvl; c[2]=(uint8_t)g.tw;
     for(uint8_t i=3;i<CFG_LEN;i++) c[i]=0;
     for(uint8_t i=0;i<POS_DIGITS;i++) c[3+i/2u]|=(uint8_t)(g.pos[i]<<((i&1u)*4u));
     c[9]|=(uint8_t)(g.hemi<<4);          /* the 14th nibble */
+    c[10]=(uint8_t)(0x80u|(g.path<<4)|g.ssid);
     api->cfg_save(c,CFG_LEN);
 }

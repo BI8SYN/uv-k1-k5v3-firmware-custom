@@ -48,30 +48,78 @@ def pos_ok(d):
     return True
 
 
-def cfg_pack(lvl, tw, pos, hemi):
-    c = [0xA8, lvl, tw & 0xFF] + [0] * 7
+def cfg_pack(lvl, tw, pos, hemi, ssid, path):
+    c = [0xA8, lvl, tw & 0xFF] + [0] * 8
     for i, x in enumerate(pos): c[3 + i // 2] |= x << ((i & 1) * 4)
     c[9] |= hemi << 4
+    c[10] = 0x80 | path << 4 | ssid
     return bytes(c)
 
 
-def cfg_unpack(c):
+def cfg_unpack(c, D):
+    """aprstx_app.c app_main(): position, hemispheres, SSID and path (the
+    defaults when byte 10 is erased or from a v0.2 config)"""
     pos = [(c[3 + i // 2] >> ((i & 1) * 4)) & 15 for i in range(13)]
-    return pos, c[9] >> 4
+    h = c[10]
+    if (h & 0xC0) == 0x80 and (h >> 4) & 3 <= 2:
+        return pos, c[9] >> 4, h & 15, (h >> 4) & 3
+    return pos, c[9] >> 4, D["CFG_SSID"], D["CFG_PATH"]
 
 
 def edit_row(label, d, h, cur):
-    """aprstx_app.c editRow(): the text and the caret column"""
+    """aprstx_app.c editRow(): the text and the bold column (stops: the n
+    digits, then the hemisphere at cur = n)"""
     o, col, n = label, None, len(d)
     for i, x in enumerate(d):
         if i == n - 4: o += " "
         if i == n - 2: o += "."
         if i == cur: col = len(o)
         o += str(x)
-    return o + " " + h, col
+    o += " "
+    if cur == n: col = len(o)
+    return o + h, col
 
 
-def build_c(blob, D, call=CALL, pos=None, hemi=None):
+CUR_NS, CUR_EW, CUR_SSID, CUR_PATH = 6, 14, 15, 16
+
+
+def nav_dir(key, set_nav):
+    """app_overlay.c app_nav_dir(): the raw UP ('U') / DOWN ('D') key as a value
+    direction, +1 / -1 with SET_NAV, -1 / +1 without; 0 for any other key"""
+    d = 1 if key == "U" else -1 if key == "D" else 0
+    return d if set_nav else -d
+
+
+def editor_keys(keys, ed, hemi=0, ssid=7, path=1, cur=0, set_nav=True):
+    """aprstx_app.c handleKeys() in the editor: digits 0-9, '*', raw UP 'U' /
+    DOWN 'D' through nav_dir(), 'F'"""
+    ed = list(ed)
+    farm = False
+    for k in keys:
+        if k == "F":
+            farm = not farm
+            continue
+        back, farm = farm, False
+        lon = CUR_NS < cur <= CUR_EW
+        if k.isdigit():
+            if cur < CUR_NS or (lon and cur < CUR_EW):
+                ed[cur - lon] = int(k)
+                cur += 1
+                if cur == CUR_NS: cur += 1
+                if cur == CUR_EW: cur -= 1
+        elif k == "*":
+            if cur <= CUR_EW: hemi ^= 2 if lon else 1
+            elif cur == CUR_SSID: ssid = (ssid + (15 if back else 1)) & 15
+            elif back: path = path - 1 if path else 2
+            else: path = path + 1 if path < 2 else 0
+        else:
+            d = nav_dir(k, set_nav)
+            if d < 0 and cur: cur -= 1
+            if d > 0 and cur < CUR_PATH: cur += 1
+    return ed, hemi, ssid, path, cur
+
+
+def build_c(blob, D, call=CALL, pos=None, hemi=None, ssid=None, path=None):
     """aprstx_app.c build()"""
     if not call or len(call) > 6 or "/" in call:
         return None
@@ -79,13 +127,17 @@ def build_c(blob, D, call=CALL, pos=None, hemi=None):
     pd = rd("POS_DEF")
     pos = list(pd[:13]) if pos is None else pos
     hemi = pd[13] if hemi is None else hemi
+    ssid = D["CFG_SSID"] if ssid is None else ssid
+    path = D["CFG_PATH"] if path is None else path
     sym = rd("F_SYM").decode()
     info = "!" + put_coord(pos[:6], "S" if hemi & 1 else "N") + sym[0] + \
         put_coord(pos[6:], "W" if hemi & 2 else "E") + sym[1] + rd("F_COMMENT").decode()
     f = bytearray(rd("F_DEST"))
     f += bytes(ord(call[i]) << 1 if i < len(call) else 0x40 for i in range(6))
-    f.append(0x60 | (D["CFG_SSID"] << 1) | (0 if D["F_PATH_LEN"] else 1))
-    f += rd("F_PATH") + b"\x03\xF0" + info.encode()
+    f.append(0x60 | (ssid << 1) | (0 if path else 1))
+    p = bytearray(rd("F_WIDE")[:7 * path])         # the first path WIDE entries
+    if path: p[-1] |= 1                             # end of the address field
+    f += p + b"\x03\xF0" + info.encode()
     c = 0xFFFF
     for x in f:
         c ^= x
@@ -143,8 +195,10 @@ def main():
     ok = True
     f = build_c(blob, D)
     ssid = D["CFG_SSID"]
+    WIDE = ["WIDE1-1", "WIDE2-1"]                                # gen_assets.py WIDE
     info = "!4850.90N/00216.25E[UV-K5 & UV-K1 APRS TX"          # gen_assets.py defaults
-    ref = build("%s-%d" % (CALL, ssid) if ssid else CALL, dst="APZK5", path=["WIDE1-1"], info=info)
+    ref = build("%s-%d" % (CALL, ssid) if ssid else CALL, dst="APZK5",
+                path=WIDE[:D["CFG_PATH"]], info=info)
     print("frame  ", decode(f), "(%d bytes)" % len(f))
     ok &= f == ref
     print("frame == ax25.build:", f == ref)
@@ -163,12 +217,50 @@ def main():
                  info="!3352.13S/15112.56W[UV-K5 & UV-K1 APRS TX")
     ok &= f2 == want
     print("edited position frame:", f2 == want, decode(f2))
-    c = cfg_pack(70, -2, pos, 3)
-    ok &= len(c) == 10 and cfg_unpack(c) == (pos, 3)
-    print("config round trip:", cfg_unpack(c) == (pos, 3), c.hex())
-    rows = (edit_row("LAT  ", pos[:6], "S", 2), edit_row("LON ", pos[6:], "W", -1))
-    ok &= rows == (("LAT  33 52.13 S", 8), ("LON 151 12.56 W", None))
+    # SSID and path edited: every path, SSID 0 (no suffix) and 15
+    for sid, path in ((0, 0), (15, 1), (9, 2)):
+        f3 = build_c(blob, D, ssid=sid, path=path)
+        want = build("F4HWN-%d" % sid if sid else "F4HWN", dst="APZK5", path=WIDE[:path], info=info)
+        ok &= f3 == want
+        print("SSID %2d, path %d frame:" % (sid, path), f3 == want, decode(f3))
+    c = cfg_pack(70, -2, pos, 3, 9, 2)
+    good = len(c) == 11 and cfg_unpack(c, D) == (pos, 3, 9, 2)
+    old = cfg_pack(70, -2, pos, 3, 0, 0)[:10]               # a v0.2 config: byte 10 erased or 0
+    good &= all(cfg_unpack(old + bytes([b]), D) == (pos, 3, D["CFG_SSID"], D["CFG_PATH"])
+                for b in (0xFF, 0x00))
+    ok &= good
+    print("config round trip, v0.2 config -> default SSID and path:", good, c.hex())
+    rows = (edit_row("LAT  ", pos[:6], "S", 2), edit_row("LON ", pos[6:], "W", -1),
+            edit_row("LAT  ", pos[:6], "S", CUR_NS),          # N/S in bold
+            edit_row("LON ", pos[6:], "W", CUR_EW - 7),       # E/W in bold
+            edit_row("LON ", pos[6:], "W", CUR_SSID - 7))     # cursor on SSID: none
+    ok &= rows == (("LAT  33 52.13 S", 8), ("LON 151 12.56 W", None), ("LAT  33 52.13 S", 14),
+                   ("LON 151 12.56 W", 14), ("LON 151 12.56 W", None))
     print("editor rows:", rows)
+    # nav_dir() as app_overlay.c: UP +1 / DOWN -1 with SET_NAV, swapped without
+    good = [nav_dir(k, sn) for sn in (True, False) for k in "UD*"] == [1, -1, 0, -1, 1, 0]
+    # 13 digits typed in a row skip N/S and stay on the last digit; the
+    # navigation keys reach N/S, E/W, SSID and path; '*' acts on the field under
+    # the cursor. Run for both SET_NAV settings: the raw key moving the cursor
+    # forward (nav_dir +1) is UP with SET_NAV, DOWN without.
+    typed = editor_keys("3352131511256", [0] * 13)
+    good &= typed == (pos, 0, 7, 1, 13)
+    good &= editor_keys("2*", pos)[:2] == ([2] + pos[1:], 1)              # '*' on a LAT digit
+    for sn in (True, False):
+        N, P = ("U", "D") if sn else ("D", "U")                          # next / previous field
+        k = lambda keys, **kw: editor_keys(keys, pos, set_nav=sn, **kw)
+        good &= k(N)[4] == 1 and k(P)[4] == 0 and k(N + P)[4] == 0       # the raw keys' direction
+        good &= k(P * 13 + N * 6 + "*")[1:] == (0 ^ 1, 7, 1, CUR_NS)
+        good &= k(N * 14 + "*" + "5")[:2] == (pos, 2)                    # E/W: '*', a digit ignored
+        good &= k(N * 15 + "**")[2:] == (9, 1, CUR_SSID)
+        good &= k(N * 16 + "**" + N)[3:] == (0, CUR_PATH)                # stops on the last field
+        good &= k(N * 15 + "F*F*")[2] == 5                               # F then '*': SSID back
+        good &= k(N * 15 + "F*" * 8, ssid=3)[2] == 11                    # ... wrapping 0 -> 15
+        good &= k(N * 16 + "F*F*F*")[3] == 1                             # path back, 1 -> 0 -> 2 -> 1
+        good &= k(N * 15 + "FF*")[2] == 8                                # F twice: disarmed
+        good &= k(N * 15 + "F" + N + "*")[3:] == (2, CUR_PATH)           # F used by a move, '*' forward
+    ok &= good
+    print("editor keys (SET_NAV on and off):", good)
     checks = [([4,8,5,0,9,0,0,0,2,1,6,2,5], True), ([9,0,0,0,0,0,1,8,0,0,0,0,0], True),
               ([9,0,0,1,0,0,0,0,0,0,0,0,0], False), ([4,8,6,0,0,0,0,0,0,0,0,0,0], False),
               ([4,8,0,0,0,0,1,8,0,0,0,0,1], False), ([4,8,0,0,0,0,1,8,1,0,0,0,0], False),

@@ -4,10 +4,11 @@
 # The UI texts come first, each padded to a multiple of 4 bytes: draw() reads
 # them in one asset_read into a word-aligned stack block, so every text costs a
 # 2-byte sp-relative add instead of a literal-pool load and a pool word.
-# The frame parts are AX.25-encoded here (addresses shifted left, SSID bytes,
-# end-of-address bit on the last path entry): the app adds the source
-# (boot-message callsign + SSID), the position (edited on the radio, this one is
-# the default) and the FCS. Edit the station settings below, then rebuild;
+# The frame parts are AX.25-encoded here (addresses shifted left, SSID bytes):
+# the app adds the source (boot-message callsign + SSID), the path (the first 0,
+# 1 or 2 entries of WIDE, end-of-address bit set by the app), the position and
+# the FCS. SSID, PATH and the position are the defaults, until they are edited
+# on the radio. Edit the station settings below, then rebuild;
 # test/tx_model.py checks the resulting frame.
 #
 #   ./gen_assets.py aprstx_assets.bin aprstx_assets.h
@@ -18,9 +19,11 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 from app_assets import Assets
 
 # ---- station settings ----
-SSID = 7                                   # F4HWN-7
+SSID = 7                                   # F4HWN-7 (0-15, 0 = no SSID)
 DEST = "APZK5"                             # APZ = experimental software
-PATH = ["WIDE1-1"]                         # [] for none
+PATH = 1                                   # index in PATHS below
+WIDE = ["WIDE1-1", "WIDE2-1"]              # path n = the first n entries
+PATHS = ["DIRECT", "WIDE1-1", "WIDE1-1,2-1"]   # shown on the radio, per path
 LAT, LON = "4850.90N", "00216.25E"         # default position: DDMM.hhN, DDDMM.hhE
 SYMBOL = "/["                              # table, code: '[' = person
 COMMENT = "UV-K5 & UV-K1 APRS TX"
@@ -39,7 +42,9 @@ UI = [
     ("T_SENT",   "  sent "),
     ("T_LAT",    "LAT  "),              # 2 spaces: digits aligned with LON
     ("T_LON",    "LON "),
-    ("T_HELP1",  "0-9 digit  * N/S E/W"),
+    ("T_SSID",   "SSID "),              # FIELD_COL (5) characters: the value
+    ("T_PATH",   "PATH "),              # starts at the same column
+    ("T_HELP1",  "0-9 digit  * change  F+* back"),   # * on the bold field
     ("T_HELP2",  "UP/DN move  MENU ok  EXIT"),
     ("T_BADPOS", "Invalid position"),
 ]
@@ -55,8 +60,10 @@ def addr(call, last=False):
 
 if not 0 <= SSID <= 15:
     sys.exit("SSID must be 0-15")
-if len(PATH) > 2:
-    sys.exit("at most 2 path entries (frame buffer)")
+if len(WIDE) != 2 or len(PATHS) != len(WIDE) + 1 or not 0 <= PATH < len(PATHS):
+    sys.exit("PATHS lists DIRECT then 1 and 2 WIDE entries (frame buffer); PATH indexes it")
+if any(len(s) > 18 - 5 for s in PATHS):
+    sys.exit("a PATHS name does not fit the line after 'PATH '")
 if not (re.fullmatch(r"\d{4}\.\d{2}[NS]", LAT) and re.fullmatch(r"\d{5}\.\d{2}[EW]", LON)):
     sys.exit("LAT must be DDMM.hhN/S, LON DDDMM.hhE/W")
 if len(SYMBOL) != 2 or len(COMMENT) > 43:
@@ -71,13 +78,18 @@ for name, s in UI:
     pad = -(len(s) + 1) % 4                 # keep every offset word-aligned
     a.text(name, s + "\0" * pad)
     ui_size += len(s) + 1 + pad
+PATHS_STRIDE = -(-(max(len(s) for s in PATHS) + 1) // 4) * 4   # word-aligned entries
+a.table("T_PATHS", PATHS, stride=PATHS_STRIDE)
+ui_size += len(PATHS) * PATHS_STRIDE
 a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_TX_CHARS", len(TX_CAPS))
 a.const("CFG_SSID", SSID)
+a.const("CFG_PATH", PATH)
 a.raw("F_DEST", addr(DEST))
-a.raw("F_PATH", b"".join(addr(h, i == len(PATH) - 1) for i, h in enumerate(PATH)))
+a.raw("F_WIDE", b"".join(addr(h) for h in WIDE))
 a.u8("POS_DEF", POS + [HEMI])
 a.raw("F_SYM", SYMBOL.encode("ascii"))
 a.raw("F_COMMENT", COMMENT.encode("ascii"))
+a.u8("BMP_F", [0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e])   # F armed, as FoxHunt / FM / Beacon
 a.main()
