@@ -20,8 +20,8 @@
  *
  * The source is the boot-message callsign (API boot_callsign) with an SSID;
  * destination, the WIDE path entries, symbol and comment are AX.25-encoded in
- * gen_assets.py (assets). The position, the SSID and the path (DIRECT, WIDE1-1
- * or WIDE1-1,WIDE2-1) are edited on the radio (key 5) and saved; gen_assets.py
+ * gen_assets.py (assets). The position, the SSID, the path (DIRECT, WIDE1-1
+ * or WIDE1-1,WIDE2-1) and the symbol are edited on the radio (key 5) and saved; gen_assets.py
  * holds the defaults. The frame is built at launch and after each edit, FCS
  * included.
  *
@@ -36,14 +36,14 @@
  *   1 px per loop · 1 / F then 1 tone level up / down (deviation, REG_70 gain
  *   10-127) · 2 / F then 2 twist up / down: 2200 Hz gain = level x (8 + tw) / 8,
  *   tw -4..+8 (-6..+6 dB), for a receiver's de-emphasis · 5 edit the position,
- *   SSID and path · * scroll view / compact view · EXIT quit. F as FoxHunt's: the next key goes down, an icon
+ *   SSID, path and symbol · * scroll view / compact view · EXIT quit. F as FoxHunt's: the next key goes down, an icon
  *   in the status bar while armed.
  * Editor (the field under the cursor in bold): 0-9 type a digit (the cursor
  *   skips the separators and N/S, and moves on) · * toggle N/S or E/W on the
- *   position lines, next SSID or path on theirs · F then * the previous SSID or
- *   path · UP/DOWN move the cursor (6 digits, N/S, 7 digits, E/W, SSID, path) ·
+ *   position lines, next SSID, path or symbol on theirs · F then * the previous
+ *   value · UP/DOWN move the cursor (6 digits, N/S, 7 digits, E/W, SSID, path, symbol) ·
  *   MENU check and keep · EXIT cancel.
- * Level, twist, position, SSID, path and view are saved on exit (cfg_save, 12
+ * Level, twist, position, SSID, path, symbol and view are saved on exit (cfg_save, 13
  * bytes).
  */
 
@@ -89,16 +89,17 @@
                               their place while armed; not while transmitting:
                               the capsule ends at x = 72                           */
 /* editor cursor stops: 0-5 the latitude digits, N/S, 7-13 the longitude
- * digits, E/W, SSID, path */
+ * digits, E/W, SSID, path, symbol */
 #define CUR_NS      LAT_DIGITS
 #define CUR_EW      (POS_DIGITS + 1u)
 #define CUR_SSID    (CUR_EW + 1u)
 #define CUR_PATH    (CUR_EW + 2u)
+#define CUR_SYM     (CUR_EW + 3u)
 #define FIELD_COL   5u     /* "SSID " / "PATH ": the value's column             */
 #define CFG_MAGIC   0xA8u  /* 0xA7 (v0.1: level and twist only) is ignored */
-#define CFG_LEN     12u    /* magic, level, twist, 13 digits + hemispheres in nibbles,
+#define CFG_LEN     13u    /* magic, level, twist, 13 digits + hemispheres in nibbles,
                               then 0x80 | path << 4 | SSID (v0.2 configs: defaults),
-                              then the view (CW_COMPACT, else scroll: 0xFF before v0.4) */
+                              the view, then the symbol index (default if erased) */
 #define LOOP_MS     40u
 #define REFRESH_LOOPS 125u /* a redraw every 5 s without a key (battery)       */
 
@@ -116,6 +117,7 @@ static struct {
     bool     fArm;                     /* editor: F pressed, the next key goes back */
     uint8_t  hemi, ehemi, cur;         /* hemispheres, edited ones, editor cursor */
     uint8_t  ssid, essid, path, epath; /* source SSID, path, and the edited ones  */
+    uint8_t  sym, esym;                /* transmitted symbol and edited index     */
     uint8_t  tick;                     /* loops since the last draw()             */
     uint8_t  top, lim, vrow;           /* scroll (px) and its limit, row being drawn */
     uint8_t  cw;                       /* view: 0 scroll, CW_COMPACT compact      */
@@ -197,8 +199,9 @@ static char *brk(char *o){
 /* The frequency (10 Hz units) drawn as the main screen draws it (ui/main.c,
  * ENABLE_BIG_FREQ): the big digits up to the kHz on lines 4-5, the last two
  * digits in the small font on line 5 right after them (from 1 GHz, the whole
- * string in the big font), the group centred. Big digits are 13 px (drawn from
- * +2), the point 3 px: the group shows (n big digits x 13 + 14) px. No division. */
+ * string in the big font). The group is aligned left to reserve the rightmost
+ * 20 columns for the APRS symbol. Big digits are 13 px (drawn from +2), the
+ * point 3 px. No division. */
 static void drawFreq(uint32_t f){
     const app_api_t *A=g.A;
     uint16_t m=0;
@@ -208,11 +211,19 @@ static void drawFreq(uint32_t f){
     for(uint8_t i=0;i<5u;i++) *o++=(char)('0'+sub(&f,P10[i]));
     *o='\0';
     uint8_t n=(uint8_t)(o-str), big=(uint8_t)(n-3u);    /* digits before "00" */
-    if(m>=1000u){ A->print_string(str,(uint8_t)((128u-n*8u)>>1),0,4,8); return; }
-    uint8_t x=(uint8_t)(((128u-(big*13u+14u))>>1)-2u);
-    A->print_normal(str+n-2u,(uint8_t)(x+big*13u+3u),0,5);   /* "00"      */
+    if(m>=1000u){ A->print_string(str,0,0,4,8); return; }
+    A->print_normal(str+n-2u,(uint8_t)(big*13u+3u),0,5);     /* "00"      */
     str[n-2u]='\0';
-    A->display_freq(str,x,4,false);                          /* "144.800" */
+    A->display_freq(str,0,4,false);                          /* "144.800" */
+}
+
+#define SYM_X 108u
+_Static_assert(SYM_X+SYM_W<=128u,"APRS symbol must fit on screen");
+static void drawSymbol(uint8_t x,uint8_t sym){
+    const app_api_t *A=g.A;
+    uint16_t off=(uint16_t)(SYM_BITMAPS+(uint16_t)sym*SYM_BYTES);
+    for(uint8_t page=0;page<3u;page++)
+        A->asset_read((uint16_t)(off+page*SYM_W),A->fb[4u+page]+x,SYM_W);
 }
 /* AX.25 address field -> "F4HWN-7" */
 static char *putCall(char *o,const uint8_t *a){
@@ -258,7 +269,7 @@ static void build(void){
     if(g.path){ A->asset_read(F_WIDE,f+14,(uint16_t)(k-14u)); f[k-1]|=1u; }
     f[k++]=0x03; f[k++]=0xF0;                                  /* UI frame, no layer 3 */
     uint8_t sym[2];
-    A->asset_read(F_SYM,sym,2);
+    A->asset_read((uint16_t)(SYM_CODES+g.sym*2u),sym,2);
     f[k++]='!';                                                /* position, no messaging */
     k=(uint8_t)(putCoord(f+k,g.pos,LAT_DIGITS,(g.hemi&1u)?'S':'N')-f);
     f[k++]=sym[0];                                             /* symbol table */
@@ -332,13 +343,12 @@ static void editRow(const char *label,uint8_t line,const uint8_t *d,uint8_t n,ch
     if((uint8_t)cur<=n){ str[0]=str[col]; str[1]='\0'; g.A->print_bold(str,(uint8_t)(col*7u),0,line); }
 }
 
-/* "SSID 7" / "PATH WIDE1-1" on a normal-font line, the value in bold when the
- * cursor is on it */
-static void fieldRow(const char *label,const char *val,uint8_t line,bool sel){
+/* A labelled value on a normal-font line, at x; the value is bold when selected. */
+static void fieldRow(const char *label,const char *val,uint8_t x,uint8_t line,bool sel){
     char *o=put(put(str,label),val);
     *o='\0';
-    g.A->print_normal(str,0,0,line);
-    if(sel) g.A->print_bold(val,FIELD_COL*7u,0,line);
+    g.A->print_normal(str,x,0,line);
+    if(sel) g.A->print_bold(val,(uint8_t)(x+FIELD_COL*7u),0,line);
 }
 
 /* ---- display ---- */
@@ -365,10 +375,19 @@ static void draw(void){
                 (int8_t)(c-(int8_t)(CUR_NS+1u)));
         char v[3];
         *puti(v,g.essid)='\0';
-        fieldRow(s+T_SSID,v,2,g.cur==CUR_SSID);
-        fieldRow(s+T_PATH,s+T_PATHS+g.epath*T_PATHS_STRIDE,3,g.cur==CUR_PATH);
-        tiny(40,put(str,s+T_HELP1));
-        tiny(48,put(str,g.status==ST_BADPOS?s+T_BADPOS:s+T_HELP2));
+        fieldRow(s+T_SSID,v,0,2,g.cur==CUR_SSID);
+        fieldRow(s+T_PATH,s+T_PATHS+g.epath*T_PATHS_STRIDE,0,3,g.cur==CUR_PATH);
+        A->asset_read((uint16_t)(SYM_CODES+g.esym*2u),v,2); v[2]='\0';
+        if(g.cur==CUR_SYM){
+            fieldRow(s+T_SYM,v,0,4,true);
+            drawSymbol(SYM_X,g.esym);
+            tiny(40,put(str,s+T_HELP1));
+            tiny(48,put(str,g.status==ST_BADPOS?s+T_BADPOS:s+T_HELP2));
+        } else {
+            fieldRow(s+T_SYM,v,0,4,false);
+            tiny(40,put(str,s+T_HELP1));
+            tiny(48,put(str,g.status==ST_BADPOS?s+T_BADPOS:s+T_HELP2));
+        }
     } else {
         g.vrow=0;
         if(g.flen){
@@ -427,6 +446,7 @@ static void draw(void){
          * blank px between) */
         for(uint8_t x=0;x<128u;x++) b[384u+x]=(uint8_t)((b[384u+x]&0x7Fu)|((~x&1u)<<7));
         drawFreq(A->tx_freq());
+        drawSymbol(SYM_X,g.sym);
 
         /* bottom line: "lvl 66  tw +0  sent 3", or why nothing was sent */
         if(g.status==ST_DENIED||g.status==ST_NOCALL)
@@ -488,7 +508,7 @@ static void handleKeys(void){
     if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
     bool back=g.fArm;                    /* F then a key: it goes backwards (down) */
     g.fArm=false;
-    if(g.edit){                          /* position, SSID and path editor */
+    if(g.edit){                          /* position, SSID, path and symbol editor */
         g.status=ST_IDLE;
         uint8_t cur=g.cur;
         bool lon=cur>CUR_NS && cur<=CUR_EW;   /* on the longitude line */
@@ -503,13 +523,16 @@ static void handleKeys(void){
         else if(key==APP_KEY_STAR){
             if(cur<=CUR_EW) g.ehemi^=(uint8_t)(lon?2u:1u);   /* on a digit or the letter */
             else if(cur==CUR_SSID) g.essid=(uint8_t)((g.essid+(back?15u:1u))&15u);
-            else if(back) g.epath=(uint8_t)(g.epath?g.epath-1u:PATH_MAX);
-            else g.epath=(uint8_t)(g.epath<PATH_MAX?g.epath+1u:0u);
+            else if(cur==CUR_PATH){
+                if(back) g.epath=(uint8_t)(g.epath?g.epath-1u:PATH_MAX);
+                else g.epath=(uint8_t)(g.epath<PATH_MAX?g.epath+1u:0u);
+            } else if(back) g.esym=(uint8_t)(g.esym?g.esym-1u:SYM_COUNT-1u);
+            else g.esym=(uint8_t)(g.esym+1u<SYM_COUNT?g.esym+1u:0u);
         }
         else if(key==APP_KEY_MENU){
             if(!posOk(g.ed)){ g.status=ST_BADPOS; return; }
             memcpy(g.pos,g.ed,POS_DIGITS);
-            g.hemi=g.ehemi; g.ssid=g.essid; g.path=g.epath;
+            g.hemi=g.ehemi; g.ssid=g.essid; g.path=g.epath; g.sym=g.esym;
             g.edit=false;
             build();
             if(!g.flen) g.status=ST_NOCALL;
@@ -518,7 +541,7 @@ static void handleKeys(void){
         else {
             int8_t d=A->nav_dir(key);
             if(d<0 && g.cur) g.cur--;
-            if(d>0 && g.cur<CUR_PATH) g.cur++;
+            if(d>0 && g.cur<CUR_SYM) g.cur++;
         }
         return;
     }
@@ -535,7 +558,7 @@ static void handleKeys(void){
     else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view */
     else if(key==APP_KEY_5){
         memcpy(g.ed,g.pos,POS_DIGITS);
-        g.ehemi=g.hemi; g.essid=g.ssid; g.epath=g.path;
+        g.ehemi=g.hemi; g.essid=g.ssid; g.epath=g.path; g.esym=g.sym;
         g.cur=0;
         g.top=0;                         /* the frame may change: back to its top */
         g.edit=true;
@@ -553,6 +576,7 @@ void app_main(const app_api_t *api){
     g.lvl=LVL_DEF;
     g.ssid=CFG_SSID;
     g.path=CFG_PATH;
+    g.sym=SYM_INDEX;
     api->asset_read(POS_DEF,g.pos,POS_DIGITS);
     api->asset_read(POS_DEF+POS_DIGITS,&g.hemi,1);
     api->cfg_load(c,CFG_LEN);
@@ -565,6 +589,7 @@ void app_main(const app_api_t *api){
         h=c[10];                         /* 0x80 | path << 4 | SSID; erased (0xFF) or 0: defaults */
         if((h&0xC0u)==0x80u && ((h>>4)&3u)<=PATH_MAX){ g.ssid=(uint8_t)(h&15u); g.path=(uint8_t)((h>>4)&3u); }
         if(c[11]==CW_COMPACT) g.cw=CW_COMPACT;
+        if(c[12]<SYM_COUNT) g.sym=c[12];
     }
     build();
     if(!g.flen) g.status=ST_NOCALL;
@@ -591,5 +616,6 @@ void app_main(const app_api_t *api){
     c[9]|=(uint8_t)(g.hemi<<4);          /* the 14th nibble */
     c[10]=(uint8_t)(0x80u|(g.path<<4)|g.ssid);
     c[11]=g.cw;
+    c[12]=g.sym;
     api->cfg_save(c,CFG_LEN);
 }

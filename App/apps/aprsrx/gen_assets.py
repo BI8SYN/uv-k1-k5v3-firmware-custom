@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 from app_assets import Assets
+from aprs_symbols_20 import BITMAPS, BYTES_PER_ICON, CODES, WIDTH
 
 FS = 9600
 TITLE = "APRS RX"                           # the version is in the .app header
@@ -59,6 +60,17 @@ for i in range(8):
     tail += [(u if i & 2 else 0) | (d if i & 4 else 0) for u, d in zip(UP, DN)]
 a.u8("BMP_TAIL", tail)
 a.const("TAIL_W", len(tail) // 8)
+symbol_map = bytearray(128 * 3)
+for index, code in enumerate(CODES):
+    slot = (2 * ord(code[0]) + 13 * ord(code[1])) & 127
+    if symbol_map[slot * 3]:
+        raise ValueError("APRS symbol hash collision")
+    symbol_map[slot * 3:slot * 3 + 3] = bytes((index + 1, ord(code[0]), ord(code[1])))
+a.raw("SYM_MAP", symbol_map)
+a.raw("SYM_BITMAPS", BITMAPS)
+a.const("SYM_COUNT", len(CODES))
+a.const("SYM_W", WIDTH)
+a.const("SYM_BYTES", BYTES_PER_ICON)
 a.i8("COS1200", cos_table(1200))            # 8 entries
 a.i8("COS2200", cos_table(2200))            # 48 entries
 a.main()

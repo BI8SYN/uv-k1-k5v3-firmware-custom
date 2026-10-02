@@ -51,25 +51,26 @@ def pos_ok(d):
 CW_COMPACT = 14                      # aprstx_app.c: the compact view
 
 
-def cfg_pack(lvl, tw, pos, hemi, ssid, path, cw=0):
-    c = [0xA8, lvl, tw & 0xFF] + [0] * 9
+def cfg_pack(lvl, tw, pos, hemi, ssid, path, cw=0, sym=5):
+    c = [0xA8, lvl, tw & 0xFF] + [0] * 10
     for i, x in enumerate(pos): c[3 + i // 2] |= x << ((i & 1) * 4)
     c[9] |= hemi << 4
     c[10] = 0x80 | path << 4 | ssid
     c[11] = cw
+    c[12] = sym
     return bytes(c)
 
 
 def cfg_unpack(c, D):
     """aprstx_app.c app_main(): position, hemispheres, SSID, path (the
-    defaults when byte 10 is erased or from a v0.2 config) and view (scroll
-    unless byte 11 is CW_COMPACT: erased before v0.4)"""
+    defaults when byte 10 is erased or from a v0.2 config), view (scroll unless
+    byte 11 is CW_COMPACT) and symbol (default when byte 12 is erased)"""
     pos = [(c[3 + i // 2] >> ((i & 1) * 4)) & 15 for i in range(13)]
     cw = CW_COMPACT if c[11] == CW_COMPACT else 0
     h = c[10]
     if (h & 0xC0) == 0x80 and (h >> 4) & 3 <= 2:
-        return pos, c[9] >> 4, h & 15, (h >> 4) & 3, cw
-    return pos, c[9] >> 4, D["CFG_SSID"], D["CFG_PATH"], cw
+        return pos, c[9] >> 4, h & 15, (h >> 4) & 3, cw, c[12] if c[12] < D["SYM_COUNT"] else D["SYM_INDEX"]
+    return pos, c[9] >> 4, D["CFG_SSID"], D["CFG_PATH"], cw, c[12] if c[12] < D["SYM_COUNT"] else D["SYM_INDEX"]
 
 
 def edit_row(label, d, h, cur):
@@ -86,7 +87,7 @@ def edit_row(label, d, h, cur):
     return o + h, col
 
 
-CUR_NS, CUR_EW, CUR_SSID, CUR_PATH = 6, 14, 15, 16
+CUR_NS, CUR_EW, CUR_SSID, CUR_PATH, CUR_SYM = 6, 14, 15, 16, 17
 
 
 def nav_dir(key, set_nav):
@@ -96,7 +97,7 @@ def nav_dir(key, set_nav):
     return d if set_nav else -d
 
 
-def editor_keys(keys, ed, hemi=0, ssid=7, path=1, cur=0, set_nav=True):
+def editor_keys(keys, ed, hemi=0, ssid=7, path=1, sym=5, cur=0, set_nav=True):
     """aprstx_app.c handleKeys() in the editor: digits 0-9, '*', raw UP 'U' /
     DOWN 'D' through nav_dir(), 'F'"""
     ed = list(ed)
@@ -116,16 +117,18 @@ def editor_keys(keys, ed, hemi=0, ssid=7, path=1, cur=0, set_nav=True):
         elif k == "*":
             if cur <= CUR_EW: hemi ^= 2 if lon else 1
             elif cur == CUR_SSID: ssid = (ssid + (15 if back else 1)) & 15
-            elif back: path = path - 1 if path else 2
-            else: path = path + 1 if path < 2 else 0
+            elif cur == CUR_PATH:
+                path = path - 1 if back and path else 2 if back else path + 1 if path < 2 else 0
+            elif back: sym = sym - 1 if sym else 47
+            else: sym = sym + 1 if sym < 47 else 0
         else:
             d = nav_dir(k, set_nav)
             if d < 0 and cur: cur -= 1
-            if d > 0 and cur < CUR_PATH: cur += 1
-    return ed, hemi, ssid, path, cur
+            if d > 0 and cur < CUR_SYM: cur += 1
+    return ed, hemi, ssid, path, sym, cur
 
 
-def build_c(blob, D, call=CALL, pos=None, hemi=None, ssid=None, path=None):
+def build_c(blob, D, call=CALL, pos=None, hemi=None, ssid=None, path=None, sym=None):
     """aprstx_app.c build()"""
     if not call or len(call) > 6 or "/" in call:
         return None
@@ -135,9 +138,10 @@ def build_c(blob, D, call=CALL, pos=None, hemi=None, ssid=None, path=None):
     hemi = pd[13] if hemi is None else hemi
     ssid = D["CFG_SSID"] if ssid is None else ssid
     path = D["CFG_PATH"] if path is None else path
-    sym = rd("F_SYM").decode()
-    info = "!" + put_coord(pos[:6], "S" if hemi & 1 else "N") + sym[0] + \
-        put_coord(pos[6:], "W" if hemi & 2 else "E") + sym[1] + rd("F_COMMENT").decode()
+    sym = D["SYM_INDEX"] if sym is None else sym
+    pair = rd("SYM_CODES")[sym * 2:sym * 2 + 2].decode()
+    info = "!" + put_coord(pos[:6], "S" if hemi & 1 else "N") + pair[0] + \
+        put_coord(pos[6:], "W" if hemi & 2 else "E") + pair[1] + rd("F_COMMENT").decode()
     f = bytearray(rd("F_DEST"))
     f += bytes(ord(call[i]) << 1 if i < len(call) else 0x40 for i in range(6))
     f.append(0x60 | (ssid << 1) | (0 if path else 1))
@@ -229,10 +233,16 @@ def main():
         want = build("F4HWN-%d" % sid if sid else "F4HWN", dst="APZK5", path=WIDE[:path], info=info)
         ok &= f3 == want
         print("SSID %2d, path %d frame:" % (sid, path), f3 == want, decode(f3))
+    f3 = build_c(blob, D, sym=0)
+    want = build("F4HWN-7", dst="APZK5", path=["WIDE1-1"],
+                 info="!4850.90N/00216.25E#UV-K5 & UV-K1 APRS TX")
+    ok &= f3 == want
+    print("selected /# symbol frame:", f3 == want, decode(f3))
     c = cfg_pack(70, -2, pos, 3, 9, 2, CW_COMPACT)
-    good = len(c) == 12 and cfg_unpack(c, D) == (pos, 3, 9, 2, CW_COMPACT)
+    good = len(c) == 13 and cfg_unpack(c, D) == (pos, 3, 9, 2, CW_COMPACT, 5)
     old = cfg_pack(70, -2, pos, 3, 0, 0)[:10]               # a v0.2 config: byte 10 erased or 0
-    good &= all(cfg_unpack(old + bytes([b, 0xFF]), D) == (pos, 3, D["CFG_SSID"], D["CFG_PATH"], 0)
+    good &= all(cfg_unpack(old + bytes([b, 0xFF, 0xFF]), D) ==
+                (pos, 3, D["CFG_SSID"], D["CFG_PATH"], 0, D["SYM_INDEX"])
                 for b in (0xFF, 0x00))                      # byte 11 erased: scroll view
     ok &= good
     print("config round trip, v0.2 config -> default SSID and path, scroll view:", good, c.hex())
@@ -250,21 +260,23 @@ def main():
     # the cursor. Run for both SET_NAV settings: the raw key moving the cursor
     # forward (nav_dir +1) is UP with SET_NAV, DOWN without.
     typed = editor_keys("3352131511256", [0] * 13)
-    good &= typed == (pos, 0, 7, 1, 13)
+    good &= typed == (pos, 0, 7, 1, 5, 13)
     good &= editor_keys("2*", pos)[:2] == ([2] + pos[1:], 1)              # '*' on a LAT digit
     for sn in (True, False):
         N, P = ("U", "D") if sn else ("D", "U")                          # next / previous field
         k = lambda keys, **kw: editor_keys(keys, pos, set_nav=sn, **kw)
-        good &= k(N)[4] == 1 and k(P)[4] == 0 and k(N + P)[4] == 0       # the raw keys' direction
-        good &= k(P * 13 + N * 6 + "*")[1:] == (0 ^ 1, 7, 1, CUR_NS)
+        good &= k(N)[5] == 1 and k(P)[5] == 0 and k(N + P)[5] == 0       # the raw keys' direction
+        good &= k(P * 13 + N * 6 + "*")[1:] == (0 ^ 1, 7, 1, 5, CUR_NS)
         good &= k(N * 14 + "*" + "5")[:2] == (pos, 2)                    # E/W: '*', a digit ignored
-        good &= k(N * 15 + "**")[2:] == (9, 1, CUR_SSID)
-        good &= k(N * 16 + "**" + N)[3:] == (0, CUR_PATH)                # stops on the last field
+        good &= k(N * 15 + "**")[2:] == (9, 1, 5, CUR_SSID)
+        good &= k(N * 16 + "**" + N)[3:] == (0, 5, CUR_SYM)
         good &= k(N * 15 + "F*F*")[2] == 5                               # F then '*': SSID back
         good &= k(N * 15 + "F*" * 8, ssid=3)[2] == 11                    # ... wrapping 0 -> 15
         good &= k(N * 16 + "F*F*F*")[3] == 1                             # path back, 1 -> 0 -> 2 -> 1
         good &= k(N * 15 + "FF*")[2] == 8                                # F twice: disarmed
-        good &= k(N * 15 + "F" + N + "*")[3:] == (2, CUR_PATH)           # F used by a move, '*' forward
+        good &= k(N * 15 + "F" + N + "*")[3:] == (2, 5, CUR_PATH)        # F used by a move, '*' forward
+        good &= k(N * 17 + "**")[4:] == (7, CUR_SYM)                     # symbol forward
+        good &= k(N * 17 + "F*")[4:] == (4, CUR_SYM)                     # symbol backward
     ok &= good
     print("editor keys (SET_NAV on and off):", good)
     checks = [([4,8,5,0,9,0,0,0,2,1,6,2,5], True), ([9,0,0,0,0,0,1,8,0,0,0,0,0], True),

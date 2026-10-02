@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 from app_assets import Assets
+from aprs_symbols_20 import BITMAPS, BYTES_PER_ICON, CODES, WIDTH
 
 # ---- station settings ----
 SSID = 7                                   # F4HWN-7 (0-15, 0 = no SSID)
@@ -44,7 +45,8 @@ UI = [
     ("T_LON",    "LON "),
     ("T_SSID",   "SSID "),              # FIELD_COL (5) characters: the value
     ("T_PATH",   "PATH "),              # starts at the same column
-    ("T_HELP1",  "0-9 digit  * change  F+* back"),   # * on the bold field
+    ("T_SYM",    "SYMB "),              # selected APRS table/code pair
+    ("T_HELP1",  "0-9, * change, F+* back"),        # * on the bold field
     ("T_HELP2",  "UP/DN move  MENU ok  EXIT"),
     ("T_BADPOS", "Invalid position"),
 ]
@@ -89,8 +91,13 @@ a.const("CFG_PATH", PATH)
 a.raw("F_DEST", addr(DEST))
 a.raw("F_WIDE", b"".join(addr(h) for h in WIDE))
 a.u8("POS_DEF", POS + [HEMI])
-a.raw("F_SYM", SYMBOL.encode("ascii"))
 a.raw("F_COMMENT", COMMENT.encode("ascii"))
+a.raw("SYM_CODES", "".join(CODES).encode("ascii"))
+a.raw("SYM_BITMAPS", BITMAPS)
+a.const("SYM_INDEX", CODES.index(SYMBOL))
+a.const("SYM_COUNT", len(CODES))
+a.const("SYM_W", WIDTH)
+a.const("SYM_BYTES", BYTES_PER_ICON)
 a.u8("BMP_F", [0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e])   # F armed, as FoxHunt / FM / Beacon
 # scroll marks (status bar, x = 75, as APRS RX): up only, down only, both; up
 # in bits 0-2 (rows hidden above), down in bits 4-6 (rows hidden below)

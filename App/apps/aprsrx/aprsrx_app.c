@@ -146,6 +146,7 @@ static struct {
     uint8_t  seq, prevKey, redraw, spk; /* spk: speaker amplifier on (key 1)    */
     bool     running;
     uint8_t  top, lim, vrow;           /* scroll (px) and its limit, row being drawn */
+    uint8_t  symTable, symCode;         /* symbol extracted from the displayed frame */
     uint8_t  cw;                       /* view: 0 scroll, CW_COMPACT compact (saved) */
     int16_t  rssi;                     /* RSSI at the end of the last frame       */
     uint16_t flen, nOk;                /* frame length, frames                    */
@@ -206,10 +207,10 @@ static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,
 
 /* The frequency (10 Hz units) drawn as the main screen draws it (ui/main.c,
  * ENABLE_BIG_FREQ): the big digits up to the kHz on lines 4-5, the last two
- * digits in the small font on line 5 right after them, the group centred. Big
- * digits are 13 px (drawn from +2), the point 3 px: the group shows (n big
- * digits x 13 + 14) px. No division. As APRS TX, without its 1 GHz case (the
- * main screen's small font there): 1296.000 in big digits still fits (105 px). */
+ * digits in the small font on line 5 right after them. The group is aligned
+ * left to reserve the rightmost 20 columns for the APRS symbol. Big digits are
+ * 13 px (drawn from +2), the point 3 px. No division. As APRS TX, without its
+ * 1 GHz case (the main screen's small font there): 1296.000 still fits. */
 static void drawFreq(uint32_t f){
     const app_api_t *A=g.A;
     uint16_t m=0;
@@ -219,10 +220,21 @@ static void drawFreq(uint32_t f){
     for(uint8_t i=0;i<5u;i++) *o++=(char)('0'+sub(&f,P10[i]));
     *o='\0';
     uint8_t n=(uint8_t)(o-str), big=(uint8_t)(n-3u);    /* digits before "00" */
-    uint8_t x=(uint8_t)(((128u-(big*13u+14u))>>1)-2u);
-    A->print_normal(str+n-2u,(uint8_t)(x+big*13u+3u),0,5);   /* "00"      */
+    A->print_normal(str+n-2u,(uint8_t)(big*13u+3u),0,5);     /* "00"      */
     str[n-2u]='\0';
-    A->display_freq(str,x,4,false);                          /* "144.800" */
+    A->display_freq(str,0,4,false);                          /* "144.800" */
+}
+
+#define SYM_X 108u
+static void drawSymbol(void){
+    const app_api_t *A=g.A;
+    uint8_t hit[3];
+    uint8_t slot=(uint8_t)((2u*g.symTable+13u*g.symCode)&127u);
+    A->asset_read((uint16_t)(SYM_MAP+slot*3u),hit,sizeof hit);
+    if(!hit[0] || hit[1]!=g.symTable || hit[2]!=g.symCode) return;
+    uint16_t off=(uint16_t)(SYM_BITMAPS+(uint16_t)(hit[0]-1u)*SYM_BYTES);
+    for(uint8_t page=0;page<3u;page++)
+        A->asset_read((uint16_t)(off+page*SYM_W),A->fb[4u+page]+SYM_X,SYM_W);
 }
 
 /* ---- SysTick cycle counter (call at least every 10 ms; wraps every 89 s,
@@ -492,6 +504,7 @@ static void drawMicE(const uint8_t *f,uint16_t i,uint16_t end,const char *s){
     o=puti(str,(int32_t)((sp*1897u)>>10)); o=put(o,s+T_KMH);
     o=puti(o,(int32_t)crs); *o++=' ';
     *o++=safe(f[i+7]); *o++=safe(f[i+8]);
+    g.symTable=f[i+8]; g.symCode=f[i+7];
     o=brk(o);
     uint8_t idx=(uint8_t)(micBit(c[0])*4u+micBit(c[1])*2u+micBit(c[2]));
     bool custom=false;
@@ -544,6 +557,7 @@ static bool drawPos(const uint8_t *f,uint16_t i,uint16_t end){
         *o++=' ';
     }
     *o++=safe(q[8]); *o++=safe(q[18]); *o++=' ';
+    g.symTable=q[8]; g.symCode=q[18];
     textRows(o,f,(uint16_t)(p+19u),end);
     return true;
 }
@@ -561,6 +575,7 @@ static void draw(void){
     A->display_clear();
     A->status_clear();
     g.vrow=0;
+    g.symTable=g.symCode=0;
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     A->draw_battery();
 
@@ -613,6 +628,7 @@ static void draw(void){
      * blank px between) */
     for(uint8_t x=0;x<128u;x++) b[384u+x]=(uint8_t)((b[384u+x]&0x7Fu)|((~x&1u)<<7));
     drawFreq(g.vfoFreq);
+    drawSymbol();
 
     /* bottom line: "ok 12  -89dBm": frames, RSSI of the last one */
     o=put(str,s+T_OK); o=puti(o,g.nOk); *o++=' '; *o++=' ';
