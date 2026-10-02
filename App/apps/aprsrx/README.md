@@ -51,7 +51,7 @@ Keys (UV-K5 and UV-K1):
 | UP/DOWN (held) | Scroll the frame 1 px per 50 ms slot (UV-K1: LEFT/RIGHT, as `nav_dir`), from the source row down to the last row |
 | * | Scroll view / compact view, saved (the flash is written only after a change). Compact: the source in bold, then the path and 3 info rows in the tiny 3x5 font, 32 characters each (position `48 50.89N 002 16.25E` on one row, speed, course, symbol and message type on the next, then the comment), as up to v0.6; no scroll |
 | 1 | Speaker on/off (off at launch); FoxHunt's speaker icon in the status bar while on |
-| MENU | Clear the last frame and the counters |
+| 2 | Clear the last frame and the counters |
 | EXIT | Quit |
 
 The receive path is the firmware's own (STD: 300 Hz high-pass, de-emphasis,

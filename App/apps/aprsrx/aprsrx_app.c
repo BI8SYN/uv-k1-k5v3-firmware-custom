@@ -35,7 +35,7 @@
  *
  * Keys (UV-K5 and UV-K1): UP/DOWN (held) scroll the frame 1 px per slot ·
  *   * scroll view / compact view (saved) · 1 speaker on/off (off at launch:
- *   the decoder does not need it) · MENU clear · EXIT quit.
+ *   the decoder does not need it) · 2 clear · EXIT quit.
  * The loader re-runs RADIO_SetupRegisters on exit; the app restores the ADC,
  * PA4, the DAC and its clock itself.
  */
@@ -630,9 +630,10 @@ static void draw(void){
     drawFreq(g.vfoFreq);
     drawSymbol();
 
-    /* bottom line: "ok 12  -89dBm": frames, RSSI of the last one */
-    o=put(str,s+T_OK); o=puti(o,g.nOk); *o++=' '; *o++=' ';
-    o=puti(o,g.rssi); o=put(o,s+T_DBM);
+    /* bottom line: "ok 12  -89dBm": frames, RSSI of the last one (none
+     * captured yet: no dBm field rather than a bogus 0dBm) */
+    o=put(str,s+T_OK); o=puti(o,g.nOk);
+    if(g.flen){ *o++=' '; *o++=' '; o=puti(o,g.rssi); o=put(o,s+T_DBM); }
     tiny(49,o);
 }
 
@@ -648,7 +649,7 @@ static void handleKeys(void){
     g.prevKey=key;
     g.redraw|=REDRAW_ON;
     if(key==APP_KEY_EXIT) g.running=false;
-    else if(key==APP_KEY_MENU){ g.flen=0; g.nOk=0; g.seq=0; g.rssi=0; g.top=0; }   /* g.lim: 0 at the redraw that follows */
+    else if(key==APP_KEY_2){ g.flen=0; g.nOk=0; g.seq=0; g.rssi=0; g.top=0; }   /* g.lim: 0 at the redraw that follows */
     else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
     else if(key==APP_KEY_STAR){        /* the view, staged now: flash is written only after a change */
         g.cw^=CW_COMPACT; g.top=0;
