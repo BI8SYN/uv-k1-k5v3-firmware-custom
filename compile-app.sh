@@ -121,15 +121,17 @@ for i in "${!files[@]}"; do
     fi
 done
 
+# --- aggregate successful builds once for the table and final summary ---
+tot_code=0; tot_free=0; tot_assets=0; built=0
+for i in "${!files[@]}"; do
+    c=${sizes[$i]}
+    [ "$c" -ge 0 ] || continue
+    tot_code=$(( tot_code + c )); tot_free=$(( tot_free + OVERLAY_MAX - c ))
+    tot_assets=$(( tot_assets + ${asset_sizes[$i]} )); built=$(( built + 1 ))
+done
+
 # --- totals row (only meaningful with more than one app) ---
 if [ "${#files[@]}" -gt 1 ]; then
-    tot_code=0; tot_free=0; tot_assets=0; built=0
-    for i in "${!files[@]}"; do
-        c=${sizes[$i]}
-        [ "$c" -ge 0 ] || continue
-        tot_code=$(( tot_code + c )); tot_free=$(( tot_free + OVERLAY_MAX - c ))
-        tot_assets=$(( tot_assets + ${asset_sizes[$i]} )); built=$(( built + 1 ))
-    done
     printf '%-16s-+-%9s-+-%9s-+-%9s-+-%9s-+-%7s-+-%s\n' \
         "----------------" "---------" "---------" "---------" "---------" "-------" "----------"
     if [ "$built" -gt 0 ]; then
@@ -158,5 +160,22 @@ if [ "$fail" -eq 0 ]; then
     fi
 else
     echo "⚠️  Some apps failed or overflowed — see the table above."
+fi
+
+echo
+if [ "$built" -gt 0 ]; then
+    super_total=$(( tot_code + tot_assets ))
+    apps_k100=$(( (tot_code * 100 + 512) / 1024 ))
+    assets_k100=$(( (tot_assets * 100 + 512) / 1024 ))
+    super_k100=$(( (super_total * 100 + 512) / 1024 ))
+    printf '✨ Super total (%d/%d apps)\n' "$built" "${#files[@]}"
+    printf '   Apps          %9d B  (%d.%02d KiB)\n' \
+        "$tot_code" "$((apps_k100/100))" "$((apps_k100%100))"
+    printf ' + Assets        %9d B  (%d.%02d KiB)\n' \
+        "$tot_assets" "$((assets_k100/100))" "$((assets_k100%100))"
+    printf ' = Apps + assets %9d B  (%d.%02d KiB)\n' \
+        "$super_total" "$((super_k100/100))" "$((super_k100%100))"
+else
+    printf '✨ Super total unavailable (0/%d apps built)\n' "${#files[@]}"
 fi
 exit $fail
