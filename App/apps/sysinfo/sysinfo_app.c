@@ -50,11 +50,14 @@
 #define QR_WIDTH          33u
 #define QR_X              47u
 #define UPTIME_ROW        14u
-#define BATTERY_LEVEL_ROW 36u
+#define RAM_FREE_FIRST_ROW 19u
+#define RAM_FREE_LAST_ROW  21u
+#define BATTERY_LEVEL_ROW  39u
 
 static const uint8_t rows[] = {
     ROW_BLANK, ROW_SECTION(0), ROW_BLANK, 0, 1, 2, 3, 4, ROW_BLANK,
-    ROW_SECTION(1), ROW_BLANK, 27, 7, 8, 21, 25, 26, 5, 6, 28, 29, 30, 31,
+    ROW_SECTION(1), ROW_BLANK, 27, 7, 8, 21, 25, 26, 5, 6, 42, 43, 44,
+    28, 29, 30, 31,
     32, 33, 34, 41, 35, 36, 37, 38, 39, 40,
     ROW_BLANK,
     ROW_SECTION(2), ROW_BLANK, 9, 10, ROW_BLANK,
@@ -74,6 +77,9 @@ struct system_core {
     uint32_t flash_total;
     uint32_t ram_used;
     uint32_t ram_total;
+    uint32_t ram_free_now;
+    uint32_t ram_free_min;
+    uint32_t stack_used_max;
     uint32_t uid[3];
     uint32_t cpuid;
     uint32_t silicon_rev;
@@ -194,6 +200,21 @@ static void refresh_power(void)
     g.core.battery_type = *(const uint8_t *)A->sys_battery_type;
 }
 
+static void refresh_memory(void)
+{
+    const uint32_t capacity = g.core.ram_total - g.core.ram_used;
+    uint32_t free_now = A->sys_stack_free_now();
+    uint32_t free_min = A->sys_stack_free_min();
+
+    if (free_now > capacity)
+        free_now = capacity;
+    if (free_min > capacity)
+        free_min = capacity;
+    g.core.ram_free_now = free_now;
+    g.core.ram_free_min = free_min;
+    g.core.stack_used_max = capacity - free_min;
+}
+
 static bool adc_read_channel(volatile uint32_t *adc, uint8_t channel,
                              uint16_t *sample)
 {
@@ -266,6 +287,7 @@ static void load_system_info(void)
     g.core.flash_total = 118u * 1024u;
     g.core.ram_used = (uint32_t)(uintptr_t)A->sys_ram_end - 0x20000000u;
     g.core.ram_total = 16u * 1024u;
+    refresh_memory();
     g.core.uid[0] = *(const uint32_t *)(UID_ADDRESS + 0u);
     g.core.uid[1] = *(const uint32_t *)(UID_ADDRESS + 4u);
     g.core.uid[2] = *(const uint32_t *)(UID_ADDRESS + 8u);
@@ -389,15 +411,18 @@ static void load_system_info(void)
     }
 }
 
-static char *format_size(char *out, uint32_t bytes, uint32_t total)
+__attribute__((noinline, noclone))
+static void format_size(char *out, uint32_t bytes, uint32_t total)
 {
     uint64_t qr = divide(bytes, 1024u);
     out = put_u32(out, (uint32_t)qr);
     out = put_char(out, '.');
     out = put_u32(out, (uint32_t)divide((uint32_t)(qr >> 32) * 10u, 1024u));
-    out = put_char(out, '/');
-    out = put_u32(out, (uint32_t)divide(total, 1024u));
-    return put_char(out, 'K');
+    if (total != 0u) {
+        out = put_char(out, '/');
+        out = put_u32(out, (uint32_t)divide(total, 1024u));
+    }
+    put_char(out, 'K');
 }
 
 static char *format_pair(char *out, uint16_t value, uint16_t total)
@@ -591,6 +616,9 @@ static void format_item_value(uint8_t item, char *out)
                       T_IWDG_STOP_STRIDE, out, T_IWDG_STOP_STRIDE);
         break;
     case 41: A->asset_read(T_SPI_FLASH, out, T_SPI_FLASH_LEN); break;
+    case 42: format_size(out, g.core.ram_free_now, 0u); break;
+    case 43: format_size(out, g.core.ram_free_min, 0u); break;
+    case 44: format_size(out, g.core.stack_used_max, 0u); break;
     default: *out = '\0'; break;
     }
     out[10] = '\0';
@@ -691,6 +719,10 @@ static void draw(void)
     uint8_t next_row[128];
     const uint16_t first = g.scroll / ROW_HEIGHT;
     const uint8_t phase = (uint8_t)(g.scroll & (ROW_HEIGHT - 1u));
+
+    if (first <= RAM_FREE_LAST_ROW &&
+        first + VISIBLE_ROWS > RAM_FREE_FIRST_ROW)
+        refresh_memory();
 
     draw_status();
 
@@ -799,6 +831,8 @@ void app_main(const app_api_t *api)
             refresh_power();
             if ((first <= UPTIME_ROW &&
                  first + VISIBLE_ROWS > UPTIME_ROW) ||
+                (first <= RAM_FREE_LAST_ROW &&
+                 first + VISIBLE_ROWS > RAM_FREE_FIRST_ROW) ||
                 (first <= BATTERY_LEVEL_ROW &&
                  first + VISIBLE_ROWS > BATTERY_LEVEL_ROW))
                 g.dirty = true;

@@ -9,13 +9,14 @@ a.text("T_TITLE", "SYSTEM INFO")
 a.table("T_SECTION", ["FIRMWARE", "SYSTEM", "BATTERY", "MEMORY", "IDENTITY",
                       "CODE", "WIKI"])
 a.table("T_KEY", ["EDITION", "VERSION", "BUILD", "TIME", "COMMIT",
-                       "FLASH", "RAM", "FREQ", "OVERLAY", "LEVEL", "TYPE",
+                       "FLASH", "RAM STATIC", "FREQ", "OVERLAY", "LEVEL", "TYPE",
                        "CHANNELS", "LISTS", "HF", "VHF", "UHF", "AERO", "OTHER",
                        "UID1", "UID2", "UID3", "UPTIME", "AM/FM",
                        "WIDE/NARROW", "CTCSS/DCS", "CPUID", "MCU TEMP", "CPU",
                        "RESET", "SILICON REV", "CLOCK", "RDP", "VDD", "BOR",
                        "HW FLASH", "MEM MAP", "IWDG", "FLASH WS", "WWDG",
-                       "NRST", "IWDG STOP", "SPI FLASH"])
+                       "NRST", "IWDG STOP", "SPI FLASH", "FREE NOW",
+                       "FREE MIN", "STACK MAX"])
 a.table("T_BATTERY", ["1600 mAh", "2200 mAh", "3500 mAh", "1500 mAh",
                              "2500 mAh", "UNKNOWN"])
 a.text("T_CPU", "PY32F071")

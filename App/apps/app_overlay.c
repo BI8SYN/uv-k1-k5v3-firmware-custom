@@ -56,6 +56,7 @@
 #include "misc.h"   /* dBmCorrTable */
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
 #include "version.h"
+#include "stack_usage.h"
 #endif
 
 _Static_assert(sizeof(app_header_t) == 64u && _Alignof(app_header_t) == 4u,
@@ -752,6 +753,8 @@ static const app_api_t app_api = {
     .sys_battery_type    = &gEeprom.BATTERY_TYPE,
     .sys_battery_percent = BATTERY_VoltsToPercent,
     .sys_storage_read    = PY25Q16_ReadBuffer,
+    .sys_stack_free_now  = STACK_FreeNow,
+    .sys_stack_free_min  = STACK_FreeMinimum,
 #endif
 };
 

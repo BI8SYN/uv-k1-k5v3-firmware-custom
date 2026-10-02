@@ -42,7 +42,8 @@
  * ships is frozen; services added before the next release join its level):
  *   1  v6.0.0 baseline: every service up to and including beam_draw
  *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc),
- *      idivmod, uidivmod (the resident division helpers), Labs system info */
+ *      idivmod, uidivmod (the resident division helpers), Labs system info,
+ *      current and minimum-since-boot free stack/RAM margin */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  2u
 
@@ -275,12 +276,16 @@ typedef struct app_api {
     const void *sys_battery_type;
     unsigned int (*sys_battery_percent)(unsigned int voltage_10mV);
     void (*sys_storage_read)(uint32_t address, void *buffer, uint32_t size);
+
+    /* ---- API level 2: stack watermark diagnostics ---- */
+    uint32_t (*sys_stack_free_now)(void);
+    uint32_t (*sys_stack_free_min)(void);
 #endif
 } app_api_t;
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
-_Static_assert(sizeof(app_api_t) == 320u,
-               "Labs system information must add exactly 44 API bytes");
+_Static_assert(sizeof(app_api_t) == 328u,
+               "Labs system information must add exactly 52 API bytes");
 #endif
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */
