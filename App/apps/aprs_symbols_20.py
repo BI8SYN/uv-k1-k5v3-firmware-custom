@@ -1,8 +1,10 @@
 """Shared 20x20 monochrome APRS symbol assets.
 
 Each icon is stored in native ST7565 page order: 20 bytes for each of three
-8-pixel pages.  Only the low four bits of the third page are used.  This lets
-the overlay apps copy an icon straight from external flash to the framebuffer.
+8-pixel pages.  The masks below fill rows 0-19; they are packed one pixel
+lower (rows 1-20, the low five bits of the third page), so the icon sits one
+pixel below the top of its three display lines.  This lets the overlay apps
+copy an icon straight from external flash to the framebuffer.
 
 The masks were validated pixel by pixel with
 aprsrx/test/aprs_symbols_20_editor.html and are packed here from its export
@@ -73,7 +75,20 @@ e0e0e0e0e0e0e0e0e0e0e0e0e0e00080808000003f1fcfefcf1f3f1fcfefcf1f3f3f13cfe8c81f3c
 00000000000080c0e0c0fefe8000000000000000000000000000ffa8faaafaa8ffff0000000000000000000000000102030203020301000000000000
 """
 
-BITMAPS = bytes.fromhex(_HEX)
+def _lowered(masks):
+    """Shift every 24-row column down by one pixel (bit 0 of page 0 is the top)."""
+    out = bytearray(len(masks))
+    for icon in range(0, len(masks), BYTES_PER_ICON):
+        for x in range(WIDTH):
+            column = sum(masks[icon + page * WIDTH + x] << (8 * page) for page in range(PAGES))
+            if column >> (8 * PAGES - 1):
+                raise ValueError("APRS symbol mask has no free row to move down")
+            column <<= 1
+            for page in range(PAGES):
+                out[icon + page * WIDTH + x] = (column >> (8 * page)) & 0xFF
+    return bytes(out)
+
+BITMAPS = _lowered(bytes.fromhex(_HEX))
 
 if len(CODES) != 48 or len(BITMAPS) != len(CODES) * BYTES_PER_ICON:
     raise ValueError("invalid APRS 20x20 symbol table")

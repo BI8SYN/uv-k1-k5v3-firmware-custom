@@ -28,7 +28,7 @@ spaces are dropped, or with a `/`), the app shows `No boot callsign` and does no
 transmit.
 
 In the normal view, the TX frequency is aligned left below the separator and
-the selected APRS symbol is shown as a 20x20 bitmap at x=108. The 48-symbol
+the selected APRS symbol is shown as a 20x20 bitmap at x=108, y=33-52. The 48-symbol
 Yaesu bitmap set is stored in the app assets; the editor keeps the full width.
 
 ## Keys (UV-K5 and UV-K1)
