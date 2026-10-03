@@ -19,10 +19,10 @@ which is also the test receiver.
 | `PATH` | `1` = `WIDE1-1`, an index in `PATHS`: `DIRECT` (no digipeater), `WIDE1-1`, `WIDE1-1,WIDE2-1`; the **default**, until one is chosen on the radio |
 | `LAT`, `LON` | `4850.90N`, `00216.25E`: the **default** position, until one is edited on the radio (key 3) |
 | `SYMBOL` | `/[` (person): the default, until one of the 48 symbols is chosen on the radio |
-| `COMMENT` | `UV-K5 & UV-K1 APRS TX` (43 characters at most) |
+| `COMMENT` | `UV-K5/K1 F4HWN Firmware` (43 characters at most) |
 
-Frame sent: `F4HWN-7>APZK5,WIDE1-1:!4850.90N/00216.25E[UV-K5 & UV-K1 APRS TX` (66 bytes,
-~0.78 s on the air: 50 ms of tone settle, 40 flags = 267 ms, the frame, 3 flags).
+Frame sent: `F4HWN-7>APZK5,WIDE1-1:!4850.90N/00216.25E[UV-K5/K1 F4HWN Firmware` (68 bytes,
+~0.79 s on the air: 50 ms of tone settle, 40 flags = 267 ms, the frame, 3 flags).
 If the boot message is not a plain callsign (empty, more than 6 characters once
 spaces are dropped, or with a `/`), the app shows `No boot callsign` and does not
 transmit.
