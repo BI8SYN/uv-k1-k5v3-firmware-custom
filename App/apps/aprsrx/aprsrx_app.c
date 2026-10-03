@@ -34,8 +34,8 @@
  * plausible frame; the redraw follows a new frame, a key, or every 5 s.
  *
  * Keys (UV-K5 and UV-K1): UP/DOWN (held) scroll the frame 1 px per slot ·
- *   * scroll view / compact view (saved) · 1 speaker on/off (off at launch:
- *   the decoder does not need it) · 2 clear · EXIT quit.
+ *   * scroll view / compact view (saved) · 1 speaker on/off (saved, off by
+ *   default: the decoder does not need it) · 2 clear · EXIT quit.
  * The loader re-runs RADIO_SetupRegisters on exit; the app restores the ADC,
  * PA4, the DAC and its clock itself.
  */
@@ -143,11 +143,12 @@ typedef struct {
  * ldr <= 124); the registers saved for the exit, used twice, go last.
  * The loader zeroes the overlay (.bss) at every launch. */
 static struct {
-    uint8_t  seq, prevKey, redraw, spk; /* spk: speaker amplifier on (key 1)    */
+    uint8_t  seq, prevKey, redraw;
     bool     running;
     uint8_t  top, lim, vrow;           /* scroll (px) and its limit, row being drawn */
     uint8_t  symTable, symCode;         /* symbol extracted from the displayed frame */
-    uint8_t  cw;                       /* view: 0 scroll, CW_COMPACT compact (saved) */
+    uint8_t  cw, spk;                  /* the saved settings, in cfg order: view (0 scroll,
+                                          CW_COMPACT compact), speaker amplifier on (key 1) */
     int16_t  rssi;                     /* RSSI at the end of the last frame       */
     uint16_t flen, nOk;                /* frame length, frames                    */
     const app_api_t *A;
@@ -651,10 +652,7 @@ static void handleKeys(void){
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_2){ g.flen=0; g.nOk=0; g.seq=0; g.rssi=0; g.top=0; }   /* g.lim: 0 at the redraw that follows */
     else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
-    else if(key==APP_KEY_STAR){        /* the view, staged now: flash is written only after a change */
-        g.cw^=CW_COMPACT; g.top=0;
-        A->cfg_save(&g.cw,1);
-    }
+    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view (saved on exit) */
 }
 
 /* ---- keys and screen, between frames ---- */
@@ -728,13 +726,15 @@ void app_main(const app_api_t *api){
     biasOn();
     api->backlight_on();
     g.vfoFreq=api->rx_freq();
-    api->cfg_load(&g.cw,1);      /* the view; erased flash (0xFF) or junk: scroll */
+    api->cfg_load(&g.cw,2);      /* view and speaker; erased flash (0xFF) or junk:
+                                    scroll, speaker off */
     if(g.cw!=CW_COMPACT) g.cw=0;
-    /* Speaker amplifier (PA8) off: the decoder does not need it (tested on the
-     * radio, 2026-09-30): PA4, the voice-prompt DAC pin, joins the audio before
-     * the amplifier; only the BK4829 AF output must be on. Key 1 turns the
-     * speaker on to listen to the channel. */
-    api->audio_path(false);
+    g.spk=(uint8_t)(g.spk==1u);
+    /* Speaker amplifier (PA8) as saved, off by default: the decoder does not
+     * need it (tested on the radio, 2026-09-30): PA4, the voice-prompt DAC pin,
+     * joins the audio before the amplifier; only the BK4829 AF output must be
+     * on. Key 1 toggles the speaker to listen to the channel. */
+    api->audio_path(g.spk);
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
 
@@ -744,4 +744,5 @@ void app_main(const app_api_t *api){
     biasOff();
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
+    api->cfg_save(&g.cw,2);      /* staged: flash is written only after a change */
 }
