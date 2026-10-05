@@ -243,12 +243,20 @@ static void drawFreq(uint32_t f){
 }
 
 #define SYM_X 108u
+/* The exact (table, code) pair first: E0 and YY have their own bitmap. An
+ * overlay (table 0-9 or A-Z) without one then shows the alternate-table symbol
+ * it is drawn over; the overlay character itself is in the body text. */
 static void drawSymbol(void){
     const app_api_t *A=g.A;
     uint8_t hit[3];
-    uint8_t slot=(uint8_t)((2u*g.symTable+13u*g.symCode)&127u);
-    A->asset_read((uint16_t)(SYM_MAP+slot*3u),hit,sizeof hit);
-    if(!hit[0] || hit[1]!=g.symTable || hit[2]!=g.symCode) return;
+    uint8_t t=g.symTable;
+    for(;;){
+        uint8_t slot=(uint8_t)((t+59u*g.symCode)&127u);
+        A->asset_read((uint16_t)(SYM_MAP+slot*3u),hit,sizeof hit);
+        if(hit[0] && hit[1]==t && hit[2]==g.symCode) break;
+        if(t<'0' || t=='\\') return;          /* none, '/', or '\\' already tried */
+        t='\\';
+    }
     uint16_t off=(uint16_t)(SYM_BITMAPS+(uint16_t)(hit[0]-1u)*SYM_BYTES);
     for(uint8_t page=0;page<3u;page++)
         A->asset_read((uint16_t)(off+page*SYM_W),A->fb[4u+page]+SYM_X,SYM_W);
