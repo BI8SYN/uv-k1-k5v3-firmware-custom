@@ -1,0 +1,26 @@
+[
+  {
+    "name": "long-beach",
+    "offset": 0,
+    "length": 1792,
+    "source_sample_offset": 1098,
+    "expected_payload": "04577fd260200005e2955b1351003811ffa400c041",
+    "sha256": "8a7cbd566472f41fc4ea9c657f40de4c83c955b620d08117f2f3093b26d07b12",
+    "sample_rate": 48000,
+    "format": "signed 8-bit demodulated audio; not IQ",
+    "source_url": "https://raw.githubusercontent.com/wiki/freerange/ais-on-sdr/example-data/long-beach-160-messages.wav",
+    "reference_decoder": "GNU AIS 0.3.3 (Debian bookworm package)"
+  },
+  {
+    "name": "helsinki",
+    "offset": 1792,
+    "length": 1792,
+    "source_sample_offset": 20267,
+    "expected_payload": "0c37129df1600008725312226dec3000fff2000000",
+    "sha256": "2d53ed43539a2d4c5ec992f35b3b6e799b6f35de073b898c84cac2c4c7bb88e1",
+    "sample_rate": 48000,
+    "format": "signed 8-bit demodulated audio; not IQ",
+    "source_url": "https://raw.githubusercontent.com/wiki/freerange/ais-on-sdr/example-data/helsinki-210-messages.raw",
+    "reference_decoder": "GNU AIS 0.3.3 (Debian bookworm package)"
+  }
+]
