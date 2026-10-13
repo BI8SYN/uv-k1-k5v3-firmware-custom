@@ -1,88 +1,68 @@
-# AIS RX 1.0
+# AIS RX 1.1
 
-Experimental receive-only AIS overlay for F4HWN Labs ABI 1 / API 2.
-The recorded-audio decoder and on-device replay have been tested. **Live RF
-reception has not been validated with a known AIS source.**
+Receive-only AIS overlay for F4HWN Labs ABI 1 / API 2. It uses the currently
+selected RX VFO, following the other receiver apps. It does not retune the
+radio, select a different RF path, scan or transmit.
 
-## Operation
+## Use
 
-Launch AIS RX from the Apps menu. It temporarily tunes to AIS 1 (161.975 MHz),
-using one channel at a time. EXIT or PTT exits without transmitting and the
-loader restores the original VFO. No app settings or received messages are
-written to flash.
+Select the desired channel or frequency in FM before opening the Apps menu.
+The usual AIS channels are 161.975 MHz (AIS 1) and 162.025 MHz (AIS 2); save them
+as normal radio channels if convenient. The app itself contains no frequency
+presets. Exit to change the selected VFO or channel.
 
 | Key | Action |
 | --- | --- |
-| 1 | AIS 1, 161.975 MHz; return from replay to live reception |
-| 2 | AIS 2, 162.025 MHz; return from replay to live reception |
 | 0 | Toggle speaker monitoring; off on launch |
-| 5 | Replay two short real recorded-audio fixtures through the sample decoder |
-| MENU | Toggle sampling diagnostics / frequency row |
-| * | Clear the displayed report and counters |
-| EXIT / PTT | Exit; PTT does not transmit |
+| MENU | Switch between the latest report and RX statistics |
+| * | Clear the latest report and counters |
+| EXIT / PTT | Exit; PTT does not transmit inside the app |
 
-LIVE identifies experimental ADC reception. REPLAY identifies recorded data;
-no live samples are decoded while that result is displayed. Replay resets the
-report count, decodes both fixtures, and shows the second (Helsinki) result:
-MMSI **230991740**, latitude **+060.16971**, longitude **+024.97456**, type 3,
-OK **00002**. The first fixture is MMSI **366998680** (Long Beach).
+The status bar shows WAIT until the first accepted report, then the accepted
+report count, plus the speaker icon and battery. The body shows the latest
+MMSI and signed decimal-degree coordinates. The compact telemetry row shows
+`S` = speed over ground in knots, `C` = course over ground in degrees (both to
+0.1), `H` = true heading, and `T` = message type. `---` means unavailable data.
+The selected RX frequency appears below the dotted separator in large digits,
+with its final two digits in the small font.
 
-Only CRC-valid reports are accepted. The app shows the latest MMSI, message
-type and accepted-report count (saturating at 65535). Types 1/2/3/18 additionally
-show signed decimal-degree coordinates, speed over ground in knots, course over
-ground in degrees (both to 0.1), and true heading. `---` marks unavailable data.
-Other types show their header; positions from unsupported types are not inferred.
-Frames larger than 64 bytes including FCS are discarded. There is no map,
-message history, simultaneous dual-channel reception or multi-slot reassembly.
+Types 1/2/3/18 include position and motion data. Other valid types show their
+MMSI/type; position fields remain unavailable. Only CRC-valid reports are
+accepted. The count saturates at 65535. Frames larger than 64 bytes including
+FCS are discarded. Reports stay in RAM and are discarded on exit. No settings
+or received data are written to flash. There is no map, history, simultaneous
+dual-channel reception or multi-slot reassembly.
 
-The speaker icon means monitoring is enabled; actual audio follows the inherited
-hardware squelch result. CTCSS/DCS gating is not implemented. Replay is muted.
+The speaker icon means monitoring is enabled; actual audio follows the selected
+channel's hardware squelch result. CTCSS/DCS gating is not implemented. Decoder
+operation is independent of the speaker and squelch gate.
 
-Diagnostics: `L` counts missed sample deadlines, `T` counts ADC timeouts,
-`P` is the last five-second ADC peak-to-peak span, capped at 999. Intentional
-housekeeping gaps are excluded from L. A good L/T result proves scheduling,
-not RF bandwidth or decoding sensitivity. Normal callbacks may miss a frame
-that begins during housekeeping; sampling resumes with a new frame candidate.
+## Statistics
 
-## Implementation
+`OK` is the accepted-report count, `L` counts missed sample deadlines,
+`ADC timeout` counts failed conversions, and `P-P` is the last five-second ADC
+peak-to-peak span (0–4095). Planned screen/key/battery maintenance gaps are
+excluded from L. Maintenance is deferred during a candidate frame but remains
+bounded for key responsiveness. A frame starting during a gap may be lost.
 
-48 kHz PA4 ADC (five samples per bit), symmetric DC tracking, sign slicer/DPLL,
-NRZI decoding, HDLC bit destuffing and CRC-16/X.25. RX voice filters/de-emphasis
-and AFC are disabled, and the VHF path and wide equal strong/weak IF filters are
-selected temporarily. ADC/DAC/GPIO and changed BK registers are restored.
-This raw analog path still needs RF validation at 9600 bit/s.
-
-Code/data/BSS: **3488 B** of 4096 B. Replay assets: **3584 B** of 3840 B.
-The 3584 replay samples are stored as signed 8-bit 48 kHz demodulated audio,
-not IQ, read in small blocks outside live sampling.
-
-## Build and test
+## Build and checks
 
 ```sh
 ./compile-app.sh aisrx
 App/apps/aisrx/tests/run.sh
 ```
 
-Output: `build/Apps/AISRX.app`. Tests need a C compiler with ASan/UBSan and
-Python 3. They cover parser bounds/sentinels, negative positions, type 18,
-CRC corruption, HDLC stuffing/abort/overflow/resync, exact recorded payloads
-with inverted polarity, noise rejection, timed sample input, deadline/ADC
-failure recovery, UI bounds, channel/audio controls and register restoration.
+Output: `build/Apps/AISRX.app`. Code/data/BSS: **3528 B** of the 4096 B budget.
+No assets, recordings, replay mode or test-data controls are included.
 
-## Recorded-audio provenance and limits
+Developer tests use synthetic HDLC/NRZI waveforms rather than captured data.
+ASan/UBSan checks cover parser sentinels and signed positions, CRC corruption,
+stuffing/abort/overflow/resync, ADC timeout/deadline recovery, selected-VFO
+preservation, absence of asset access, UI bounds and register restoration.
 
-Fixtures are short windows from publicly downloadable recordings documented at
-https://github.com/freerange/ais-on-sdr/wiki/Example-data-files . Their sample
-offsets, payloads and hashes are in `tests/fixtures.json`. Original source:
-Long Beach WAV (8-bit mono, 48 kHz); Helsinki raw (signed 16-bit stereo, 48 kHz,
-channel 0). The fixture reports also appear in independent GNU AIS output.
-`tests/prepare_recordings.py` regenerates these windows from the original files.
-
-Full recordings were decoded on the host: Long Beach WAV 80 reports, Helsinki
-channels 142 + 24 reports, Long Beach lossy OGG 16 reports. GNU AIS comparison
-counts were 73, 153 + 52, and 17 respectively. Counts differ and do not imply
-all decoders recover identical reports. The compact decoder has weaker noise
-margin than a full SDR receiver: added noise can cause a valid frame to be lost.
-A known RF source or reception near real AIS traffic is still required to
-validate the antenna-to-ADC chain. Do not use this experimental receiver for
-navigation or safety decisions.
+The receiver samples PA4 at 48 kHz and runs DC tracking, a sign slicer/DPLL,
+NRZI, HDLC and CRC-16/X.25. It temporarily disables voice filters/de-emphasis
+and AFC, selects a wide IF filter, and restores changed ADC/DAC/GPIO/BK state
+on exit. Analog filtering remains a hardware constraint: successful software
+tests do not establish antenna-to-ADC reception performance. **Live RF reception
+is awaiting external validation.** This app is not a navigation or safety device.

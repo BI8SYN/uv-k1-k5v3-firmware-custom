@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Support older local images with Python/toolchain links in /usr/local/bin.
-export PATH="$PATH:/usr/local/bin"
 
 APP="$(basename "$PWD")"
 APP_NAME="AIS RX"
-APP_VER="1.0"
+APP_VER="1.1"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"
@@ -27,12 +25,12 @@ rm -f ./*.app ./*.elf ./*.bin
 step() { printf '\r  🔨 %-13s [%d/4] %-8s' "$APP_NAME" "$1" "$2"; }
 trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 
-step 1 assets ; cat tests/long-beach.s8 tests/helsinki.s8 > aisrx_assets.bin
+step 1 prepare ; :
 step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 step 3 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 4 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" \
-                   --vma "${APP_VMA}" --assets aisrx_assets.bin >/dev/null
+                   --vma "${APP_VMA}" >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

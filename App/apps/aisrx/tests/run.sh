@@ -8,7 +8,3 @@ cc "${flags[@]}" tests/unit_test.c -o "$task_tmp/unit"
 "$task_tmp/unit"
 cc "${flags[@]}" tests/app_test.c -o "$task_tmp/app"
 "$task_tmp/app"
-cc "${flags[@]}" tests/decoder_test.c -o "$task_tmp/replay"
-"$task_tmp/replay" tests/long-beach.s8
-"$task_tmp/replay" tests/helsinki.s8
-python3 tests/verify_replay.py "$task_tmp/replay"
