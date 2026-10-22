@@ -31,7 +31,7 @@
 #define CONFIG_COUNT        4u
 #define STATE_FIRST         (CONFIG_FIRST + CONFIG_COUNT)
 #define APP_SLOT_FIRST      (STATE_FIRST + 2u)
-#define APP_SLOT_COUNT      48u
+#define APP_SLOT_COUNT      64u
 #define TAIL_FIRST          (APP_SLOT_FIRST + APP_SLOT_COUNT)
 #define ENTRY_COUNT         (TAIL_FIRST + 2u)
 #define ROW_COUNT           (ENTRY_COUNT * CARD_ROWS)
@@ -218,7 +218,7 @@ static void entry_range(uint16_t entry, uint32_t *start, uint32_t *end)
         *start = APP_REGION_BASE + (uint32_t)(entry - APP_SLOT_FIRST) * APP_SLOT_STRIDE;
         *end = *start + APP_SLOT_STRIDE - 1u;
     } else if (entry == TAIL_FIRST) {
-        *start = 0x162000u;
+        *start = APP_REGION_BASE + APP_SLOT_COUNT * APP_SLOT_STRIDE;
         *end = 0x1DDFFFu;
     } else {
         *start = 0x1DE000u;

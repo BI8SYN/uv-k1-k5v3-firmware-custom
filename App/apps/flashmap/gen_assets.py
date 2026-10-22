@@ -21,7 +21,7 @@ a.table("T_DESC", [
     "Multiboot slot, 128 KB",
     "Private channels + settings",
     "Overlay app slot",
-    "Reserve for 62 app slots",
+    "Reserve for 46 app slots",
     "Sonic 4K interop area",
 ])
 a.table("T_HEADER_STATE", ["EMPTY", "BAD HEADER", "UNNAMED"])
