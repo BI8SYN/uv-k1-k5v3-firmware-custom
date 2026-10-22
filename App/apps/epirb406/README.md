@@ -10,7 +10,7 @@ Status:
 |---|---|
 | Feasibility: can an app read the demodulated signal? | **Done**: yes, on PA4 (see `../lab406/README.md`) |
 | Decoder core (`dec406.c`), host-tested on synthetic audio | **Done**: 17/17 tests pass |
-| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes |
+| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes; v2.9: help page and homing to Sig Finder on 121.5 / 243 MHz, tested on a UV-K1 (2026-10-22) |
 | Bench test with the beacon generator on 433.650 MHz | **Done** (2026-09-27) |
 | Bench test with a Flipper Zero on 433.650 MHz (`test/flipper406.py`) | **Done** (2026-09-30, v1.6) |
 
@@ -22,6 +22,13 @@ Status:
    launch.
 3. The speaker is off by default. Key 1 turns it on if you want to hear the
    bursts; decoding still receives the BK4829 AF signal on PA4 while it is off.
+4. MENU shows the keys. Once a beacon is decoded, key 8 (121.5 MHz) or 9
+   (243 MHz) takes you to Sig Finder to home on it, and back here on EXIT
+   (see [Homing with Sig Finder](#homing-with-sig-finder)).
+
+Needs a Labs or Fusion_ firmware v6.3.0 or later (app API level 3). Keys 8 / 9
+also need `vfo_stage` (v6.3.0, with the BEAM bridge) and Sig Finder 1.9 or
+later installed under its own name.
 
 Every decoded message plays three 1536 Hz beeps (150 ms on, 150 ms off), even
 with the speaker off, so a beacon heard while the radio is in a pocket is not
@@ -52,7 +59,10 @@ Keys (UV-K5 and UV-K1):
 | 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz |
 | 5 | Back to the VFO frequency |
 | 1 | Speaker on/off, saved on exit; off by default |
-| MENU | Clear all five messages and the counters |
+| 0 | Clear all five messages and the counters |
+| 8 | Homing on 121.5 MHz: after MENU confirms, VFO on 121.500 MHz AM narrow and Sig Finder; EXIT there brings you back (see [Homing with Sig Finder](#homing-with-sig-finder)) |
+| 9 | Same on 243 MHz (military), VFO on 243.000 MHz AM wide |
+| MENU | Help: one page listing the keys; any key goes back to the messages |
 | EXIT | Quit (the firmware retunes to the VFO frequency) |
 
 Sampling is never interrupted after frame synchronization. While still searching,
@@ -94,6 +104,37 @@ v1.7 counts the sync-pattern bits with a loop (one pass per set bit) instead of
 the branch-free version: 36 bytes less, **3,284 bytes, 812 free**. The cost is
 at most 4 x 32 passes per half-bit (every 12 samples), and only while searching
 for the sync, against 5,000 cycles per sample; host tests 29/29.
+
+## Homing with Sig Finder
+
+A 406 MHz beacon gives the position; the last metres are found by homing on
+its 121.5 MHz transmitter (or 243 MHz on military equipment) with Sig Finder.
+Keys 8 and 9 do the retuning and the switch:
+
+1. The key shows a confirmation page (`121.500 MHZ AM NARROW` or
+   `243.000 MHZ AM WIDE`, `THEN SIG FINDER`, `MENU OK   OTHER KEY NO`). Only
+   MENU goes on, so a stray key press never retunes the radio.
+2. The app reads the current VFO (`beam_get`) and hands off to Sig Finder with
+   it as the message (`handoff`): the first 26 bytes of `app_beam_channel_t`,
+   every setting but the name. `handoff()` copies the message at once, so the
+   same record can be changed afterwards.
+3. It sets 121.500 MHz AM narrow or 243.000 MHz AM wide, no offset, no tone,
+   other settings kept, and stages it (`vfo_stage`), then quits.
+4. The loader applies the VFO and opens Sig Finder, already on the homing
+   frequency.
+5. EXIT in Sig Finder stages the original VFO back and hands off to EPIRB 406,
+   which starts again on 406 MHz. The decoded messages are not kept (RAM is
+   cleared on exit). A long EXIT restores the VFO and goes to the main screen.
+
+On a firmware without `vfo_stage` the keys do nothing. Without Sig Finder the
+VFO is still set and the radio goes back to the main screen. If the staging is
+refused (frequency outside the radio's range), Sig Finder opens on the launch
+VFO and still brings you back.
+
+v2.8 / v2.9 space: the help page and the confirmation share one tiny-font page
+renderer and one stack buffer, and their lines are assets. Clearing the
+messages moved from MENU to 0. The build adds `-fno-guess-branch-probability`
+(4 bytes). **4,072 bytes, 24 free.**
 
 ## Signal path on the radio
 

@@ -29,7 +29,11 @@
  * A decoded message plays three beeps, whatever the speaker setting.
  * Keys (UV-K5 and UV-K1): UP/DOWN scroll, then select the newer / older message
  *   at an end · * normal / compact view · 4/6 tune -/+5 kHz (up to +/-50 kHz)
- *   · 5 back to the VFO frequency · 1 speaker on/off · MENU clear · EXIT quit.
+ *   · 5 back to the VFO frequency · 1 speaker on/off · 0 clear · MENU help
+ *   · EXIT quit · 8 / 9 homing: after a MENU confirmation, the VFO goes to
+ *   121.500 MHz AM narrow / 243.000 MHz AM wide (vfo_stage) and Sig Finder
+ *   opens (handoff), with the launch VFO as the message: on EXIT, Sig Finder
+ *   gives that VFO back and launches EPIRB 406 again.
  * The loader re-runs RADIO_SetupRegisters on exit (amplifier off); the resident capture
  * (af_capture_close) restores the ADC, PA4, the DAC and its clock.
  * Screen texts and protocol names are read-only assets (gen_assets.py, API
@@ -324,8 +328,60 @@ static void draw(void){
     tiny(str,0,49,o);
 }
 
+/* ---- modal screens: help, homing ---- */
+/* Wait for the shown key to be released, then for the next key. That key is
+ * remembered so handleKey() does not act on it again: EXIT closes the screen,
+ * it does not also quit. */
+static uint8_t nextKey(void){
+    uint8_t key;
+    g.A->blit_full();
+    while(g.A->get_key()!=APP_KEY_INVALID) g.A->delay_ms(10);
+    while((key=g.A->get_key())==APP_KEY_INVALID) g.A->delay_ms(10);
+    return g.prevKey=key;
+}
+
+/* A page of NUL-separated asset lines in the tiny font, one every 7 pixels.
+ * Returns the text that follows the last line shown. */
+static const char *page(char *b,uint16_t at,unsigned size,unsigned lines){
+    const char *p=b;
+    g.A->asset_read(at,b,size);
+    g.A->display_clear();
+    for(unsigned y=0;y<lines*7u;y+=7u){
+        g.A->print_tiny(p,0,(uint8_t)y,false,true);
+        while(*p++){}
+    }
+    return p;
+}
+
+/* Homing, 121.5 MHz (key 8) or 243 MHz (key 9): ask, then stage the VFO and
+ * hand off to Sig Finder. */
+static void homing(char *b,bool mil){
+    const app_api_t *A=g.A;
+    /* vfo_stage (API level 3, appended late): absent from older firmware */
+    if(A->api_size<offsetof(app_api_t,vfo_stage)+sizeof A->vfo_stage||!A->vfo_stage) return;
+    const char *name=page(b,mil?T_ASK243:T_ASK121,ASK_SIZE,ASK_LINES); /* then "Sig Finder" */
+    if(nextKey()!=APP_KEY_MENU) return;
+    app_beam_channel_t ch;
+    A->beam_get(&ch);            /* the current VFO: other fields kept */
+    /* handoff() copies the message now: Sig Finder gets the launch VFO, every
+     * field but the name, and gives it back on EXIT. Not installed: no
+     * hand-off, back to the main screen with the VFO set. */
+    A->handoff(name,&ch,offsetof(app_beam_channel_t,name));
+    ch.rx_frequency=mil?24300000u:12150000u;   /* 10 Hz units */
+    ch.tx_offset_frequency=0;
+    ch.tx_offset_direction=0;
+    ch.modulation=1;             /* AM */
+    ch.channel_bandwidth=!mil;   /* 121.5 narrow, 243 wide */
+    ch.rx_codetype=ch.tx_codetype=0;
+    /* Refused (out of the radio's range): Sig Finder opens on the launch VFO
+     * and gives it back as well. */
+    A->vfo_stage(&ch);
+    g.running=false;
+}
+
 /* ---- input ---- */
 static void handleKey(uint8_t key){
+    char b[HELP_SIZE] __attribute__((aligned(4)));   /* help and homing pages */
     int d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
     unsigned top=(unsigned)(g.top+d);
     if(top<=g.lim) g.top=(uint16_t)top;
@@ -337,7 +393,10 @@ static void handleKey(uint8_t key){
         case APP_KEY_1:    g.cfg.spk^=1u; rxAudio(); break;
         case APP_KEY_STAR: g.cfg.view^=VIEW_COMPACT; g.top=0; break;
         case APP_KEY_5:    g.offSteps=0; tune(); break;
-        case APP_KEY_MENU: g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; g.lastErr=0; break;
+        case APP_KEY_8:
+        case APP_KEY_9:    homing(b,key==APP_KEY_9); break;
+        case APP_KEY_MENU: page(b,T_HELP,HELP_SIZE,HELP_LINES); nextKey(); break;
+        case APP_KEY_0:    g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; g.lastErr=0; break;
         case APP_KEY_4:
         case APP_KEY_6: {
             int8_t n=(int8_t)(g.offSteps+(key==APP_KEY_4?-1:1));
