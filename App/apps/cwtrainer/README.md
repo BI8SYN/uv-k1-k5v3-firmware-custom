@@ -48,18 +48,18 @@ From the repository root:
 
 The existing Docker script discovers `App/apps/cwtrainer/build.sh`. It builds
 only this application when given `cwtrainer`; no changes to that script are
-required. A direct build with Python 3 and ARM GCC 13.3.Rel1 is also supported:
+required. A direct build with Python 3 and ARM GCC 13.3.Rel1
+(`arm-none-eabi-gcc` in `PATH`) is also supported:
 
 ```sh
-python App/apps/cwtrainer/build.py --toolchain /path/to/arm-gcc/bin
+(cd App/apps/cwtrainer && ./build.sh)
 python App/apps/cwtrainer/test/run.py
 ```
 
 Direct output: `App/apps/cwtrainer/CWTrainer.app`. Host tests require Python 3
-and GCC (`HOST_CC` can select the host compiler). Build helpers regenerate all
-assets and headers, enforce 4 KiB, verify package CRCs and report memory/hash.
-The measured build uses the same GCC release as the repository Dockerfile;
-the Docker wrapper itself was not executed in the delivery environment.
+and GCC (`HOST_CC` can select the host compiler). `build.sh` regenerates all
+assets and headers and enforces 4 KiB, like the other apps. The measured build
+uses the same GCC release as the repository Dockerfile.
 
 ## Controls
 

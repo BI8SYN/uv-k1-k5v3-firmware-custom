@@ -35,11 +35,10 @@ Garder le binaire précédent pour retour arrière.
 
 Compilation depuis la racine : `./compile-app.sh cwtrainer`, sortie
 `build/Apps/CWTrainer.app`. Le script découvre automatiquement le dossier.
-Sans Docker : `python App/apps/cwtrainer/build.py --toolchain CHEMIN_ARM_GCC/bin`,
-sortie dans le dossier de l’application. Tests :
-`python App/apps/cwtrainer/test/run.py` (Python standard et GCC hôte).
-Compilation mesurée avec ARM GCC 13.3.Rel1, comme le Dockerfile ; le wrapper
-Docker n’a pas été exécuté dans cet environnement.
+Sans Docker, avec `arm-none-eabi-gcc` dans le `PATH` :
+`(cd App/apps/cwtrainer && ./build.sh)`, sortie dans le dossier de l’application.
+Tests : `python App/apps/cwtrainer/test/run.py` (Python standard et GCC hôte).
+Compilation mesurée avec ARM GCC 13.3.Rel1, comme le Dockerfile.
 
 ## Commandes
 
