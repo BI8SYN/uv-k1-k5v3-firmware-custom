@@ -17,7 +17,7 @@ set -euo pipefail
 # ---------------------------------------------
 
 IMAGE=uvk1-uvk5v3
-RELEASE_PRESETS=(Fusion Transfer FieldOps Labs Max)
+RELEASE_PRESETS=(Fusion Service)
 FLASH_LIMIT=$((118 * 1024))
 RAM_LIMIT=$((16 * 1024))
 
@@ -35,9 +35,9 @@ EXTRA_ARGS=("$@")
 # ---------------------------------------------
 # Validate preset name
 # ---------------------------------------------
-if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|FieldOps|Labs|Max|Fusion_|Service_|All)$ ]]; then
+if [[ ! "$PRESET" =~ ^(Custom|Fusion|Service|All)$ ]]; then
   echo "❌ Unknown preset: '$PRESET'"
-  echo "Valid presets are: Custom, Fusion, Transfer, FieldOps, Labs, Max, Fusion_, Service_, All"
+  echo "Valid presets are: Custom, Fusion, Service, All"
   exit 1
 fi
 
