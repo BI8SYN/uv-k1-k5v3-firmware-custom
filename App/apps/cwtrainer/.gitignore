@@ -2,8 +2,6 @@
 *.bin
 *.elf
 *.map
-*.su
-build-report.json
 test/out/
 __pycache__/
 measure/
