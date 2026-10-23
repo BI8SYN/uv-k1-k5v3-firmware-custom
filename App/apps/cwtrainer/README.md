@@ -1,6 +1,6 @@
-# CW Trainer 0.3.3
+# CW Trainer 0.4
 
-Standalone Morse practice for **UV-K5 V3**, F4HWN Fusion **Labs ABI 1 / API 3**.
+Standalone Morse practice for **UV-K5 V3**, F4HWN Fusion **ABI 1 / API 3**.
 [Documentation française](README.fr.md) · [Validation and memory report](VALIDATION.md)
 
 CW Trainer uses **local audio only**. It does not request radio transmission.
@@ -11,6 +11,12 @@ straight key was not tested; STRAIGHT is validated in software only. A second
 receiver on the same frequency detected no RF during the trials; this is a
 practical check, not an instrumental demonstration of absolute RF absence or
 an RF certification.
+
+## 0.4 version
+
+Version 0.4 normalizes the application version to the `X.Y` format. Runtime
+behavior is unchanged from 0.3.3, so the existing software and hardware
+validation below still describes the same code.
 
 ## 0.3.3 correction
 
@@ -33,9 +39,9 @@ hardware behavior; no firmware-side SIDE1 diagnosis or change is included.
 
 ## Install and build
 
-Use firmware already providing compatible Labs API3 on UV-K5 V3. Install the
-**complete `CWTrainer.app` including its assets** into a free Labs slot using
-UV Studio. Open it from Labs; verify version 0.3.3 in the slot information.
+Use compatible Fusion API3 firmware on UV-K5 V3. Install the **complete
+`CWTrainer.app` including its assets** into a free app slot using UV Studio.
+Open it from the Apps menu; verify version 0.4 in the slot information.
 No firmware rebuild, application registration or integration with another app
 is needed. Keep a previous `.app` for rollback.
 
@@ -95,7 +101,7 @@ inert even while receiving; WPM, tone, length, GAP, NEW, REPLAY and reveal remai
 Set **TX** speed/tone in TX FREE before entering RX>TX; set **RX** speed/tone
 in either RX mode. GAP is shared by both RX modes and retained on exit. A minus
 sign after WPM indicates the F prefix. Defaults: 18 WPM, TX 700 Hz, RX 600 Hz,
-length 5, GAP 1×. Configuration uses 12 of Labs' 16 bytes; older 10-byte settings
+length 5, GAP 1×. Configuration uses 12 of the app's 16-byte settings area; older 10-byte settings
 retain their RX/TX values, with erased GAP migrated to 1×.
 
 GAP controls the **total silence** between characters: 3, 4.5, 6 or 9 Morse
@@ -160,11 +166,11 @@ reported hardware trials are described above. See [VALIDATION.md](VALIDATION.md)
 - **OpenAI Codex:** implementation and automated tests.
 - **ChatGPT:** technical assistance, design and contribution preparation.
 - CW USB / CW Keyer engine and USB handling adapted from work by **Armel F4HWN,
-  Johan Denoyer F4WAT and Sébastien F4LPF**; resident Labs services/fonts remain
+  Johan Denoyer F4WAT and Sébastien F4LPF**; resident Fusion services/fonts remain
   unchanged. Existing copyright notices and Apache-2.0 licensing are retained
   (see the repository's `LICENSE`).
 
 This is the first generation. Possible future work may use three independent
-Labs apps: **CW Trainer RX** (Koch/Farnsworth/groups/callsigns), **CW Trainer TX**
+overlay apps: **CW Trainer RX** (Koch/Farnsworth/groups/callsigns), **CW Trainer TX**
 (keying/decoding), and **CW Trainer Virtual QSO** (normal QSO and contest RUN/S&P).
 No split is implemented, and no schedule or delivery commitment is implied.

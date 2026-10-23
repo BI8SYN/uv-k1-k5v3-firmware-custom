@@ -642,7 +642,7 @@ summary = {'host_cases': int(re.search(r'CASES (\d+)', result.stdout)[1]),
            'framebuffer_and_lcd': 'actual font/helper/LCD bodies, simulated SPI panel',
            'resident_audio_audit': 'PASS', 'compiler_command': cmd}
 summary['physical_keys_audit']='SIDE1=18, PTT=16/PB10, keypad priority; read-only GPIO; no RF'
-summary['version']='0.3.3'
+summary['version']='0.4'
 summary['gap_waveform_cases']=1344
 summary['gap_factors']=[1,1.5,2,3]
 summary['audio_latencies_us']=[0,50,500]

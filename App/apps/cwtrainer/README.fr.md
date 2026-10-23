@@ -1,6 +1,6 @@
-# CW Trainer 0.3.3
+# CW Trainer 0.4
 
-Application autonome Labs **ABI1/API3 pour UV-K5 V3**.
+Application autonome Fusion **ABI1/API3 pour UV-K5 V3**.
 [README principal en anglais](README.md) · [Validation détaillée](VALIDATION.md)
 
 Audio local uniquement, aucune émission radio prévue. Les contrôles logiciels
@@ -9,6 +9,12 @@ IAMB A/B, TX FREE, RX TRAIN, RX>TX, audio, décodage et ergonomie. Aucune vérit
 pioche n’a été testée ; STRAIGHT reste validé uniquement en logiciel. Un second
 récepteur sur la même fréquence n’a détecté aucune émission pendant les essais :
 c’est un contrôle pratique, pas une mesure instrumentale ni une certification RF.
+
+## Version 0.4
+
+La version 0.4 normalise le numéro de l’application au format `X.Y`. Le
+comportement reste identique à celui de la version 0.3.3 ; les validations
+logicielles et matérielles existantes décrivent donc toujours le même code.
 
 ## Correctif 0.3.3
 
@@ -28,9 +34,10 @@ ou recherche de correctif dans le firmware.
 - Réglages RX/TX indépendants : 5–60 WPM, 300–1 000 Hz par 50 Hz ; groupes 1–5.
 - GAP pédagogique partagé RX/RX>TX : 1×, 1,5×, 2×, 3× ; paramètres persistants.
 
-Avec un firmware Labs API3 compatible, installer **CWTrainer.app complet, assets
-compris**, dans un slot libre avec UV Studio. Vérifier 0.3.3 dans les informations
-du slot. Aucun changement du firmware ni de l’enregistrement des applications.
+Avec un firmware Fusion API3 compatible, installer **CWTrainer.app complet,
+assets compris**, dans un slot libre avec UV Studio. L’ouvrir depuis le menu
+Apps et vérifier la version 0.4 dans les informations du slot. Aucun changement
+du firmware ni de l’enregistrement des applications.
 Garder le binaire précédent pour retour arrière.
 
 Compilation depuis la racine : `./compile-app.sh cwtrainer`, sortie
