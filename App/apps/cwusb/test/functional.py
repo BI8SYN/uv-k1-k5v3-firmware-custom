@@ -23,7 +23,7 @@ h=h.replace('return 0;}\nstatic void legacy','return denyTx;}\nstatic void legac
 h=h.replace('legacyN++;requestN++;prepStart=simUs;','assert(!"legacy fallback must not run");legacyN++;requestN++;prepStart=simUs;')
 h=h.replace('quietN++;requestN++;','assert(g.armState==6);quietN++;requestN++;')
 h=h.replace('if(on){markN++;','if(on){assert(g.armState==6 && quietN);markN++;')
-h=h.replace('(void)reg;(void)val;','if(reg==REG_PA_BIAS && (val>>8)){assert(g.armState==6 && quietN);paWrites++;}')
+h=h.replace('(void)reg;(void)val;','assert(reg!=0x33); /* REG_33 never reads back 0x90xx here: no LED write */\n if(reg==REG_PA_BIAS && (val>>8)){assert(g.armState==6 && quietN);paWrites++;}')
 h=h.replace('(void)s;(void)x;(void)y;(void)st;(void)fill;(void)end;', '(void)x;(void)y;(void)st;(void)fill;(void)end;if(!strcmp(s,"LOCK"))lockLabels++;if(!strcmp(s,"ARM"))armLabels++;')
 h=h.replace('whichMode=mode;exitAt=4200000;moder=pupdr=rcc=0;', 'whichMode=mode;exitAt=4200000;moder=pupdr=rcc=cycleOrigin=denyTx=lockLabels=armLabels=paWrites=0;')
 h=h.replace('simUs+=200;assert(simUs<40000000);return simUs>=exitAt?APP_KEY_EXIT:APP_KEY_INVALID;', 'simUs+=scanUs;assert(simUs<40000000);uint8_t k=APP_KEY_INVALID;for(unsigned i=0;i<nKeys;i++)if(simUs>=keyEvents[i].t)k=keyEvents[i].key;return simUs>=exitAt?APP_KEY_EXIT:k;')

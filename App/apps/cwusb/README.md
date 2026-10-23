@@ -3,7 +3,9 @@
 `CW USB` is the USB-C-input variant of CW Keyer. It transmits a manually
 keyed A1A-style carrier on the current TX VFO and is entirely contained in its
 own 4 KiB overlay. The implementation is shared with `CW Keyer`, but this
-binary contains only the USB-C paddle input path.
+binary contains only the USB-C paddle input path. Since version 1.4 the red
+LED lights for each transmitted mark (see
+[Red TX LED](../cwkeyer/README.md#red-tx-led) in the CW Keyer README).
 
 ## Requirements and install
 
@@ -140,7 +142,9 @@ documented in the sibling [`CW Keyer` README](../cwkeyer/README.md).
 
   They compile the app source against simulated GPIO and API callbacks: they
   cover arming, keying and the three keyer modes, not RF or the electrical
-  contacts.
+  contacts. The waveform test also checks one red LED write per mark when
+  register `0x33` reads back `0x90xx`, and the functional test checks that
+  the register is never written when it does not.
 - After about 0.5 s without contact, the radio's USB-C path reports a closing
   contact as closed for only 3 to 10 ms, then as open for about 150 to 220 ms
   while it is still held, before it follows the contact again. When that first
