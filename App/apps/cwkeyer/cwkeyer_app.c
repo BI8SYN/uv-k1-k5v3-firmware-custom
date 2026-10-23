@@ -149,6 +149,9 @@ _Static_assert(1200u / WPM_MAX > 2u * RAMP_MS,
 #define REG_AFC            0x73u
 #define REG_TONE           0x70u
 #define REG_TONE_FREQ      0x71u
+#define REG_GPIO_OUT       0x33u
+#define GPIO_SHADOW        0x90u /* fixed high byte of the shadow */
+#define GPIO_RED         0x0001u
 #define AF_ALAM              2u
 #define AF_USB               5u
 #define TX_LINK_OFF      0x0000u
@@ -679,14 +682,11 @@ static void rememberPaddle(void);
 #endif
 
 /* PA bias in four 1 ms steps, 1/4, 1/2, 3/4 and full drive going up, the
- * same levels the other way down to 0. */
+ * same levels the other way down to 0 (quarters rounded down). */
 static void rampBias(bool up)
 {
-    const uint8_t quarter = (uint8_t)(g.paBias >> 2);
-    const uint8_t level[5] = { 0u, quarter, (uint8_t)(g.paBias >> 1),
-                               (uint8_t)(g.paBias - quarter), g.paBias };
     for (uint8_t i = 1u; i <= 4u; i++) {
-        writeBias(level[up ? i : 4u - i]);
+        writeBias((uint8_t)(g.paBias * (up ? i : 4u - i) >> 2));
         A->delay_ms(1u);
 #if IAMBIC_ENGINE
         rememberPaddle();
@@ -699,6 +699,13 @@ static void rampUp(void)
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->bk_write(REG_TX_LINK, TX_LINK_NO_MIC);
     a->tx_carrier(true);
+    /* Red LED on each mark. The resident drives REG_33 (LEDs, PA, RX and LNA
+     * switches) from a RAM shadow that is always 0x90xx, and the API only has
+     * the green LED, so REG_33 is read back, and left alone unless it reads
+     * 0x90xx. tx_carrier(false) rewrites the shadow: red goes off with the PA. */
+    const uint16_t gpio = a->bk_read(REG_GPIO_OUT);
+    if (gpio >> 8 == GPIO_SHADOW)
+        a->bk_write(REG_GPIO_OUT, gpio | GPIO_RED);
     rampBias(true);
 }
 

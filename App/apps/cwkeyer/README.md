@@ -130,7 +130,8 @@ also gates the BK4829 internal PA gain while leaving the PLL locked. The
 unmodulated carrier is therefore keyed with three coordinated controls: the
 internal PA gain, `VRAMP`, and the board PA enable.
 
-Every mark uses a four-step, 4 ms rise and fall of the saved PA bias. Internal
+Every mark uses a four-step, 4 ms rise and fall of the saved PA bias (1/4,
+1/2, 3/4 and full, rounded down). Internal
 PA gain and board PA enable are asserted before the rise, then removed after
 the fall. Between marks the synthesizer remains locked, but internal PA gain,
 PA bias and the board PA are all off.
@@ -138,6 +139,19 @@ PA bias and the board PA are all off.
 normal RX. After the final mark, the configurable semi-break-in hang (300 ms
 by default) keeps the synthesizer ready across Morse element gaps, then
 automatically calls `tx_end` and restores reception without requiring `MENU`.
+
+### Red TX LED
+
+Since version 1.4 the red LED lights for each mark actually on the air and goes
+out between marks, like the LED of a normal transmission. The API only drives
+the green LED, so the app works with the BK4829 GPIO output register `0x33`,
+which also holds the board PA enable, the RX switch and the VHF/UHF LNA
+switches. The resident writes that register from a RAM shadow whose high byte
+is always `0x90`. Right after `tx_carrier(true)`, the app reads `0x33` back
+and, only if it reads `0x90xx`, writes the same value with the red bit added;
+any other reading leaves the register alone and the mark is sent without the
+LED. The next `tx_carrier(false)` rewrites the register from the shadow, where
+red was never set, so red goes off with the PA; `tx_end` clears it as well.
 The overlay then selects BK4829 AF output 5 (`BK4819_AF_BASEBAND2` in the
 driver, the upper-sideband demodulator, `AF_USB` in this app; unrelated to the
 radio's USB-C connector) and tunes below the
