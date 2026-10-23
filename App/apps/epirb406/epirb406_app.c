@@ -33,7 +33,10 @@
  *   · EXIT quit · 8 / 9 homing: after a MENU confirmation, the VFO goes to
  *   121.500 MHz AM narrow / 243.000 MHz AM wide (vfo_stage) and Sig Finder
  *   opens (handoff), with the launch VFO as the message: on EXIT, Sig Finder
- *   gives that VFO back and launches EPIRB 406 again.
+ *   gives that VFO back and launches EPIRB 406 again · 7: after a MENU
+ *   confirmation, QR Map opens (handoff) with the selected message's position
+ *   as decoded (centi-arcseconds) and its beacon ID; EXIT there launches
+ *   EPIRB 406 again. Both hand-offs leave the app: the history is cleared.
  * The loader re-runs RADIO_SetupRegisters on exit (amplifier off); the resident capture
  * (af_capture_close) restores the ADC, PA4, the DAC and its clock.
  * Screen texts and protocol names are read-only assets (gen_assets.py, API
@@ -116,11 +119,11 @@ static unsigned sub(uint32_t *v,uint32_t d){ unsigned q=0; while(*v>=d){ *v-=d; 
  * plain bl: the service lies past the ldr immediate range of the table. */
 __attribute__((noinline))
 static char *puti(char *o,int32_t v){ return g.A->append_i32(o,v); }
-/* Arc seconds to truncated decimal degrees followed by the hemisphere. */
+/* Centi-arcseconds to truncated decimal degrees followed by the hemisphere. */
 static char *putPos(char *o,int32_t s,char pos,char neg){
     uint32_t a=(uint32_t)(s<0?-s:s);
-    o=puti(o,sub(&a,3600u)); *o++='.';
-    for(unsigned k=0;k<5u;k++){ a*=10u; *o++=(char)('0'+sub(&a,3600u)); }
+    o=puti(o,sub(&a,360000u)); *o++='.';
+    for(unsigned k=0;k<5u;k++){ a*=10u; *o++=(char)('0'+sub(&a,360000u)); }
     *o++= s<0?neg:pos;
     return o;
 }
@@ -328,7 +331,7 @@ static void draw(void){
     tiny(str,0,49,o);
 }
 
-/* ---- modal screens: help, homing ---- */
+/* ---- modal screens: help, hand-offs ---- */
 /* Wait for the shown key to be released, then for the next key. That key is
  * remembered so handleKey() does not act on it again: EXIT closes the screen,
  * it does not also quit. */
@@ -353,14 +356,27 @@ static const char *page(char *b,uint16_t at,unsigned size,unsigned lines){
     return p;
 }
 
-/* Homing, 121.5 MHz (key 8) or 243 MHz (key 9): ask, then stage the VFO and
- * hand off to Sig Finder. */
-static void homing(char *b,bool mil){
+/* QR Map's message, sent from the record as it is: latitude, longitude, ID. */
+_Static_assert(offsetof(dec406_info_t,lonS)==offsetof(dec406_info_t,latS)+4u &&
+               offsetof(dec406_info_t,id)==offsetof(dec406_info_t,latS)+8u &&
+               8u+sizeof((dec406_info_t*)0)->id<=APP_HANDOFF_MAX,
+               "QR Map hand-off: latS, lonS and id must follow each other");
+
+/* Hand-offs, after a confirmation page that ends with the target's name.
+ * Key 7: the selected position to QR Map, exactly as decoded (centi-
+ * arcseconds), then the beacon ID as its label; not installed: nothing
+ * happens. Keys 8 / 9: homing,
+ * 121.5 MHz or 243 MHz: stage the VFO and hand off to Sig Finder. */
+__attribute__((noinline)) static void handoff(char *b,uint8_t key){
     const app_api_t *A=g.A;
+    dec406_info_t *in=&g.history[g.cur]->info;
+    if(key==APP_KEY_7){ if(!g.count||!in->hasPos) return; }
     /* vfo_stage (API level 3, appended late): absent from older firmware */
-    if(A->api_size<offsetof(app_api_t,vfo_stage)+sizeof A->vfo_stage||!A->vfo_stage) return;
-    const char *name=page(b,mil?T_ASK243:T_ASK121,ASK_SIZE,ASK_LINES); /* then "Sig Finder" */
+    else if(A->api_size<offsetof(app_api_t,vfo_stage)+sizeof A->vfo_stage||!A->vfo_stage) return;
+    const bool mil=key==APP_KEY_9;
+    const char *name=page(b,key==APP_KEY_7?T_ASKQR:mil?T_ASK243:T_ASK121,ASK_SIZE,ASK_LINES);
     if(nextKey()!=APP_KEY_MENU) return;
+    if(key==APP_KEY_7){ g.running=!A->handoff(name,&in->latS,8u+sizeof in->id); return; }
     app_beam_channel_t ch;
     A->beam_get(&ch);            /* the current VFO: other fields kept */
     /* handoff() copies the message now: Sig Finder gets the launch VFO, every
@@ -381,7 +397,7 @@ static void homing(char *b,bool mil){
 
 /* ---- input ---- */
 static void handleKey(uint8_t key){
-    char b[HELP_SIZE] __attribute__((aligned(4)));   /* help and homing pages */
+    char b[HELP_SIZE] __attribute__((aligned(4)));   /* help and hand-off pages */
     int d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
     unsigned top=(unsigned)(g.top+d);
     if(top<=g.lim) g.top=(uint16_t)top;
@@ -393,8 +409,9 @@ static void handleKey(uint8_t key){
         case APP_KEY_1:    g.cfg.spk^=1u; rxAudio(); break;
         case APP_KEY_STAR: g.cfg.view^=VIEW_COMPACT; g.top=0; break;
         case APP_KEY_5:    g.offSteps=0; tune(); break;
+        case APP_KEY_7:
         case APP_KEY_8:
-        case APP_KEY_9:    homing(b,key==APP_KEY_9); break;
+        case APP_KEY_9:    handoff(b,key); break;
         case APP_KEY_MENU: page(b,T_HELP,HELP_SIZE,HELP_LINES); nextKey(); break;
         case APP_KEY_0:    g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; g.lastErr=0; break;
         case APP_KEY_4:

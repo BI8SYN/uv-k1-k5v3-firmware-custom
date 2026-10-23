@@ -148,7 +148,8 @@ The current app collection includes:
 - digital and signal apps: ACARS RX, AIS RX, ATIS RX, APRS RX, APRS TX, APRS Edit,
   APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW USB, SSTV, POCSAG RX, Sonde M10,
   Sonde M20, Sonde RS41 and EPIRB 406,
-- tools and diagnostics: AF Scope, AF Spectro, Resistor, System Info and Flash Map,
+- tools and diagnostics: AF Scope, AF Spectro, QR Map, Resistor, System Info and
+  Flash Map,
 - games and demos: Breakout, Cube3D, Hell Maze, Minesweeper, Plasma, Rapid Roll,
   Snake, Sokoban, Space Impact and Tetris.
 
