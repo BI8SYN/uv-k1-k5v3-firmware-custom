@@ -42,7 +42,7 @@ Anyway, have fun.
 
 # Donations
 
-Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP (3 times), Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Yannick F4JFO, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH, 邓 月, Jon M1JRH, Antonios Chouchoumis, Cédric Thomas, Justin White, Gordon Campbell, Per Georg Fostad, Edward Phillips, Peter Kintscher and Jerome Lambert for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
+Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH, 邓 月, Jon M1JRH, Antonios Chouchoumis, Cédric Thomas, Justin White, Gordon Campbell, Per Georg Fostad, Edward Phillips, Peter Kintscher, Jerome Lambert and Andy G0FTD for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
 
 ## Table of Contents
 
@@ -71,16 +71,11 @@ for everyday use and is the base inherited by the specialized editions. It inclu
 - Multiboot with one protected Main backup and four user firmware slots,
 - independent Multiconfig banks, switchable at runtime through `SetCfg`.
 
-Specialized presets extend Fusion for specific uses:
+Fusion also includes the overlay-apps platform: applications are loaded from
+external Flash and run in a 4 KiB RAM overlay. The additional presets are:
 
-- **Transfer** adds AirCopy and BEAM wireless channel transfer.
-- **FieldOps** adds first-responder controls, Fox Hunt and Morse Beacon support.
-- **Labs** is the experimental edition. It carries the broad feature selection of the
-  other releases and adds the overlay-apps platform (apps loaded from external Flash and
-  run in a 4 KiB RAM overlay) — the newest, least-settled work. Expect rough edges. It is
-  not a strict superset of every other edition: features may be exchanged between releases
-  to preserve stability and memory headroom.
-- **Custom** remains a manually configured build based directly on the hidden technical default.
+- **Service**, which adds AirCopy, BEAM and external-Flash service operations.
+- **Custom**, a manually configured build based directly on the hidden technical default.
 
 ### Multiboot and Multiconfig
 
@@ -136,7 +131,7 @@ remains available for navigation and operation.
 
 ### Overlay applications and APRS
 
-Labs can store up to 48 applications from the current collection of 36 in
+Fusion can store up to 64 applications from the current collection of 43 in
 external Flash. Each app is loaded into a dedicated 4 KiB RAM overlay only
 while it is running, while larger read-only assets such as text, fonts, bitmaps
 and lookup tables remain in external Flash.
@@ -145,10 +140,11 @@ The current app collection includes:
 
 - radio tools: Broadcast FM, Fox Hunt, Beacon, Beam, Signal Finder, Spectrum3D
   and ToneCall,
-- digital and signal apps: ACARS RX, AIS RX, ATIS RX, APRS RX, APRS TX, APRS Edit,
-  APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW USB, SSTV, POCSAG RX, Sonde M10,
-  Sonde M20, Sonde RS41 and EPIRB 406,
-- tools and diagnostics: AF Scope, AF Spectro, Resistor, System Info and Flash Map,
+- digital and signal apps: ACARS RX, AIS RX, ATIS RX, ATIS DSC RX, APRS RX,
+  APRS TX, APRS Edit, APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW Trainer,
+  CW USB, SSTV, POCSAG RX, Sonde M10, Sonde M20, Sonde RS41, GeoNav and EPIRB 406,
+- tools and diagnostics: AF Scope, AF Spectro, QR Map, Resistor, System Info and
+  Flash Map,
 - games and demos: Breakout, Cube3D, Hell Maze, Minesweeper, Plasma, Rapid Roll,
   Snake, Sokoban, Space Impact and Tetris.
 
@@ -157,6 +153,8 @@ common position formats and Mic-E data, and keeps a five-frame history. APRS TX
 uses an editable callsign (with boot-message fallback) and transmits a position beacon; its companion
 APRS Edit app edits the callsign, SSID, digipeater path, position, symbol and
 89-character comment.
+GeoNav reuses that APRS position as the home QTH and shows the bearing and
+distance to a position handed off by the RS41, M10 or M20 radiosonde app.
 APRS DIGI is a deliberately limited `WIDE1-1` fill-in digipeater with
 path-independent duplicate suppression and channel-busy protection.
 KISS TNC makes the radio the TNC of APRSdroid (or any KISS client) over the
@@ -178,8 +176,8 @@ the spectrum and a sonogram, the two main peaks and the level difference
 between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
 
 > [!IMPORTANT]
-> Overlay apps, including APRS RX, APRS TX and APRS DIGI, are experimental and intended for
-> Labs. Use the app files supplied with the same firmware release so their ABI
+> Overlay apps, including APRS RX, APRS TX and APRS DIGI, are experimental parts of
+> Fusion. Use the app files supplied with the same firmware release so their ABI
 > and required capabilities match the installed firmware.
 
 > [!CAUTION]
@@ -331,7 +329,7 @@ between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
 - Firmware flashing, calibration backup and restore, and boot-logo management from the same interface.
 - BEAM transfer of complete channel settings between compatible radios.
 
-#### AirCopy (Transfer edition)
+#### AirCopy (Service edition)
 
 AirCopy can transfer one 128-channel bank, the radio settings, or all memory
 banks and settings in one operation. Version 6.1 adds a stop-and-wait protocol
@@ -408,7 +406,7 @@ the receiving radio must be restarted after a successful Flash clone.
   - RF Log,
   - Fox Hunt,
   - Beacon,
-  - ToneCall (launches the ToneCall overlay app, Labs).
+  - ToneCall (launches the ToneCall overlay app).
 
 ### Reliability and optimization
 
@@ -504,19 +502,15 @@ The default preset is **Fusion**. Available presets are:
 
 - **Custom**
 - **Fusion**
-- **Transfer**
-- **FieldOps**
-- **Labs**
-- **All** (Fusion, Transfer, FieldOps and Labs)
+- **Service**
+- **All** (Fusion and Service)
 
 Examples:
 
 ```bash
 ./compile-firmware.sh
 ./compile-firmware.sh Fusion
-./compile-firmware.sh Transfer
-./compile-firmware.sh FieldOps
-./compile-firmware.sh Labs
+./compile-firmware.sh Service
 ./compile-firmware.sh All
 ```
 
@@ -528,7 +522,7 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-firmware.sh FieldOps -DENABLE_VOX=OFF
+./compile-firmware.sh Service -DENABLE_VOX=OFF
 ./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
 ./compile-firmware.sh Fusion -DSQL_TONE=600
 ```
