@@ -62,6 +62,10 @@ void UI_LoadText(char *buffer, uint32_t size, UI_Text_t text);
 
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber);
 void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width);
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    void UI_PrintStringWithFont(const char *pString, uint8_t Start, uint8_t End,
+                                uint8_t Line, uint8_t Width, uint8_t font);
+#endif
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
 void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
 void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);

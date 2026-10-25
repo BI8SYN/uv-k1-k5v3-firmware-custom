@@ -73,20 +73,13 @@ const uint8_t FIRST_HIDDEN_MENU_ITEM = MENU_F_LOCK;
 static const char gSetFntLabels[][19] FW_ASSET =
 {
     "NORMAL / TERMINUS",
-    "NORMAL / VCR",
     "NORMAL / ALT",
     "NORMAL / 7 SEGMENT",
     "NORMAL / ORIGINAL",
     "CAPS / TERMINUS",
-    "CAPS / VCR",
     "CAPS / ALT",
     "CAPS / 7 SEGMENT",
-    "CAPS / ORIGINAL",
-    "ITALIC / TERMINUS",
-    "ITALIC / VCR",
-    "ITALIC / ALT",
-    "ITALIC / 7 SEGMENT",
-    "ITALIC / ORIGINAL"
+    "CAPS / ORIGINAL"
 };
 _Static_assert(ARRAY_SIZE(gSetFntLabels) == FONT_VARIANT_COUNT,
                "one SetFnt label per font variant");
@@ -1676,7 +1669,8 @@ void UI_DisplayMenu(void)
         #ifdef ENABLE_FEAT_F4HWN_SET_FNT
             case MENU_SET_FNT:
                 sprintf(String, "Font %u", (unsigned)gSubMenuSelection + 1u);
-                UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+                UI_PrintStringWithFont(String, menu_item_x1, menu_item_x2, 0, 8,
+                                       (uint8_t)gSubMenuSelection);
                 already_printed = true;
                 break;
         #endif

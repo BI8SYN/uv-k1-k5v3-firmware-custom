@@ -107,10 +107,8 @@ void UI_PrintStringBuffer(const char *pString, uint8_t *buffer, const uint8_t *f
         if (pString[i] > ' ' && pString[i] < 127) {
             const uint32_t offset = i * char_spacing + 1;
 #ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
-            // An italic glyph is one column wider: it fills the spacing column.
-            const uint8_t width = FONT_GetSmallWidth(font);
-
-            FW_ASSETS_Read(font + index * width, buffer + offset, width);
+            FW_ASSETS_Read(font + index * FONT_SMALL_WIDTH,
+                           buffer + offset, FONT_SMALL_WIDTH);
 #else
             uint16_t bit = index * FONT_SMALL_WIDTH * 7u;
 
@@ -125,13 +123,24 @@ void UI_PrintStringBuffer(const char *pString, uint8_t *buffer, const uint8_t *f
     }
 }
 
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+void UI_PrintStringWithFont(const char *pString, uint8_t Start, uint8_t End,
+                            uint8_t Line, uint8_t Width, uint8_t font)
+#else
 void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width)
+#endif
 {
     size_t i;
     size_t Length = strlen(pString);
 
     if (End > Start)
-        Start += (((End - Start) - (Length * Width)) + 1) / 2;
+    {
+        const size_t available = (size_t)End - Start + 1u;
+        const size_t required = Length * Width;
+
+        if (available > required)
+            Start += (available - required) / 2u;
+    }
 
     for (i = 0; i < Length; i++)
     {
@@ -139,12 +148,25 @@ void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Lin
         if (pString[i] > ' ' && pString[i] < 127)
         {
             const unsigned int index = pString[i] - ' ' - 1;
-            FONT_DrawBigGlyph(index,
-                              gFrameBuffer[Line + 0] + ofs,
-                              gFrameBuffer[Line + 1] + ofs);
+            #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+                FONT_DrawBigGlyphWithVariant(font, index,
+                                             gFrameBuffer[Line + 0] + ofs,
+                                             gFrameBuffer[Line + 1] + ofs);
+            #else
+                FONT_DrawBigGlyph(index,
+                                  gFrameBuffer[Line + 0] + ofs,
+                                  gFrameBuffer[Line + 1] + ofs);
+            #endif
         }
     }
 }
+
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width)
+{
+    UI_PrintStringWithFont(pString, Start, End, Line, Width, UI_FONT_SETTING);
+}
+#endif
 
 void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, const uint8_t *font)
 {
