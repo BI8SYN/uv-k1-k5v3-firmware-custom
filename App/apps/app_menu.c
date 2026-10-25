@@ -35,8 +35,11 @@
  * selector.  Bit 3 leaves room for the selected-row capsule's top edge. */
 static void app_status_bar(void)
 {
+    char text[UI_TEXT_SIZE];
+
     UI_StatusClear();
-    GUI_DisplaySmallestInverse("F4HWN APPS", 44, 0, true, true, 84);
+    UI_LoadText(text, sizeof(text), UI_TEXT_APP_TITLE);
+    GUI_DisplaySmallestInverse(text, 44, 0, true, true, 84);
 
     for (uint8_t x = 2u; x < LCD_WIDTH - 2u; x++)
         gFrameBuffer[0][x] |= 0x08u;
@@ -169,25 +172,25 @@ static void app_format_size(char out[6], uint32_t bytes)
 }
 
 /* Human-readable action for an APP_LaunchOverlay / APP_ValidateSlot failure. */
-static const char *app_err_text(const app_header_t *header, uint8_t rc)
+static UI_Text_t app_err_text(const app_header_t *header, uint8_t rc)
 {
     switch (rc)
     {
-        case APP_ERR_SLOT:          return "BAD SLOT";
-        case APP_ERR_MAGIC:         return "NO APP";
+        case APP_ERR_SLOT:          return UI_TEXT_BAD_SLOT;
+        case APP_ERR_MAGIC:         return UI_TEXT_NO_APP;
         case APP_ERR_ABI:
             /* api_min == 0 also identifies pre-reset development blobs whose
              * former uint16_t ABI value occupies these two bytes. */
             if (header->api_min == 0u || header->abi_major < APP_ABI_MAJOR)
-                return "UPDATE APP";
-            return "UPDATE FIRMWARE";
-        case APP_ERR_NOT_COMMITTED: return "REINSTALL APP";
-        case APP_ERR_SIZE:          return "UPDATE APP";
-        case APP_ERR_CRC:           return "REINSTALL APP";
-        case APP_ERR_VMA:           return "UPDATE APP";
-        case APP_ERR_AUTH:          return "AUTH";
-        case APP_ERR_CAP:           return "NOT SUPPORTED";
-        default:                    return "ERROR";
+                return UI_TEXT_UPDATE_APP;
+            return UI_TEXT_UPDATE_FIRMWARE;
+        case APP_ERR_NOT_COMMITTED: return UI_TEXT_REINSTALL_APP;
+        case APP_ERR_SIZE:          return UI_TEXT_UPDATE_APP;
+        case APP_ERR_CRC:           return UI_TEXT_REINSTALL_APP;
+        case APP_ERR_VMA:           return UI_TEXT_UPDATE_APP;
+        case APP_ERR_AUTH:          return UI_TEXT_AUTH;
+        case APP_ERR_CAP:           return UI_TEXT_NOT_SUPPORTED;
+        default:                    return UI_TEXT_ERROR;
     }
 }
 
@@ -196,14 +199,18 @@ static const char *app_err_text(const app_header_t *header, uint8_t rc)
 static void app_show_error(const app_header_t *header, uint8_t rc)
 {
     char nm[19];
+    char text[UI_TEXT_SIZE];
     app_copy(nm, sizeof(nm), header->name, APP_NAME_LEN);
 
     UI_DisplayClear();
     UI_StatusClear();
-    GUI_DisplaySmallestInverse("APP ERROR", 46, 0, true, true, 82);
+    UI_LoadText(text, sizeof(text), UI_TEXT_APP_ERROR);
+    GUI_DisplaySmallestInverse(text, 46, 0, true, true, 82);
     UI_PrintStringSmallNormal(nm, 2, 0, 2);                 /* which app */
-    UI_PrintStringSmallNormal(app_err_text(header, rc), 2, 0, 4); /* action */
-    UI_PrintStringSmallNormal("Press any key", 2, 0, 6);
+    UI_LoadText(text, sizeof(text), app_err_text(header, rc));
+    UI_PrintStringSmallNormal(text, 2, 0, 4);               /* action */
+    UI_LoadText(text, sizeof(text), UI_TEXT_PRESS_ANY_KEY);
+    UI_PrintStringSmallNormal(text, 2, 0, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 
@@ -310,7 +317,9 @@ void APP_MenuOpen(void)
 
         if (installed_count == 0u)
         {
-		UI_PrintStringSmallNormal("NO APPS", 0, LCD_WIDTH - 1u, 3);
+            char text[UI_TEXT_SIZE];
+            UI_LoadText(text, sizeof(text), UI_TEXT_NO_APPS);
+            UI_PrintStringSmallNormal(text, 0, LCD_WIDTH - 1u, 3);
         }
         else
         {

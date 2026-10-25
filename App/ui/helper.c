@@ -19,10 +19,60 @@
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
 #include "font.h"
+#include "fw_assets.h"
 #include "ui/helper.h"
 #include "ui/inputbox.h"
 #include "misc.h"
 #include "settings.h"
+
+static const char gUiText[UI_TEXT_COUNT][UI_TEXT_SIZE] FW_ASSET = {
+    [UI_TEXT_VFO_NORMAL]           = "",
+    [UI_TEXT_VFO_BUSY]             = "BUSY",
+    [UI_TEXT_VFO_BAT_LOW]          = "BAT LOW",
+    [UI_TEXT_VFO_TX_DISABLE]       = "TX DISABLE",
+    [UI_TEXT_VFO_TIMEOUT]          = "TIMEOUT",
+    [UI_TEXT_VFO_VOLT_HIGH]        = "VOLT HIGH",
+    [UI_TEXT_LOW_BATTERY]          = "LOW BATTERY",
+    [UI_TEXT_SCAN_LIST]            = "SCAN LIST ",
+    [UI_TEXT_TRIPLE_WATCH]         = "TRIPLE WATCH",
+    [UI_TEXT_QUAD_WATCH]           = "QUAD WATCH",
+    [UI_TEXT_UNLOCK_KEYBOARD]      = "UNLOCK KEYBOARD",
+    [UI_TEXT_SCANNER_SAVE_PROMPT]  = "Save?",
+    [UI_TEXT_SCANNER_SAVE_PREFIX]  = "Save:",
+    [UI_TEXT_SCANNER_SEARCH_FREQ]  = "Search Freq",
+    [UI_TEXT_SCANNER_SEARCH_TONE]  = "Search Tone",
+    [UI_TEXT_SCANNER_COMPLETE]     = "Scan Complete",
+    [UI_TEXT_SCANNER_FAILED]       = "Scan Failed",
+    [UI_TEXT_SCANNER_FREQ_UNKNOWN] = "Freq:---.-----",
+    [UI_TEXT_SCANNER_TONE_UNKNOWN] = "Tone:---",
+    [UI_TEXT_SCANNER_TONE_NONE]    = "Tone:None",
+    [UI_TEXT_APP_TITLE]            = "F4HWN APPS",
+    [UI_TEXT_APP_ERROR]            = "APP ERROR",
+    [UI_TEXT_PRESS_ANY_KEY]        = "Press any key",
+    [UI_TEXT_NO_APPS]              = "NO APPS",
+    [UI_TEXT_BAD_SLOT]             = "BAD SLOT",
+    [UI_TEXT_NO_APP]               = "NO APP",
+    [UI_TEXT_UPDATE_APP]           = "UPDATE APP",
+    [UI_TEXT_UPDATE_FIRMWARE]      = "UPDATE FIRMWARE",
+    [UI_TEXT_REINSTALL_APP]        = "REINSTALL APP",
+    [UI_TEXT_AUTH]                 = "AUTH",
+    [UI_TEXT_NOT_SUPPORTED]        = "NOT SUPPORTED",
+    [UI_TEXT_ERROR]                = "ERROR",
+};
+
+void UI_LoadText(char *buffer, uint32_t size, UI_Text_t text)
+{
+    if (size == 0u)
+        return;
+
+    if ((unsigned)text >= UI_TEXT_COUNT)
+    {
+        buffer[0] = '\0';
+        return;
+    }
+
+    FW_ASSETS_ReadStr(buffer, gUiText[text], MIN(size, sizeof(gUiText[0])));
+}
 
 
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber)
@@ -56,6 +106,9 @@ void UI_PrintStringBuffer(const char *pString, uint8_t *buffer, const uint8_t *f
         const unsigned int index = pString[i] - ' ' - 1;
         if (pString[i] > ' ' && pString[i] < 127) {
             const uint32_t offset = i * char_spacing + 1;
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+            FW_ASSETS_Read(font + index * FONT_SMALL_WIDTH, buffer + offset, FONT_SMALL_WIDTH);
+#else
             uint16_t bit = index * FONT_SMALL_WIDTH * 7u;
 
             for (uint8_t column = 0; column < FONT_SMALL_WIDTH; column++) {
@@ -64,6 +117,7 @@ void UI_PrintStringBuffer(const char *pString, uint8_t *buffer, const uint8_t *f
                 buffer[offset + column] = (packed >> (bit & 7u)) & 0x7Fu;
                 bit += 7u;
             }
+#endif
         }
     }
 }
@@ -104,7 +158,7 @@ void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_
 
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
 {
-    UI_PrintStringSmall(pString, Start, End, Line, gFontSmallPacked);
+    UI_PrintStringSmall(pString, Start, End, Line, FONT_SMALL_NORMAL);
 }
 
 void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
@@ -138,27 +192,19 @@ void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_
 
 void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
 {
-#ifdef ENABLE_SMALL_BOLD
-    const uint8_t *font = gFontSmallBoldPacked;
-#else
-    const uint8_t *font = gFontSmallPacked;
-#endif
+    const uint8_t *font = FONT_SMALL_BOLD;
 
     UI_PrintStringSmall(pString, Start, End, Line, font);
 }
 
 void UI_PrintStringSmallBufferNormal(const char *pString, uint8_t * buffer)
 {
-    UI_PrintStringBuffer(pString, buffer, gFontSmallPacked);
+    UI_PrintStringBuffer(pString, buffer, FONT_SMALL_NORMAL);
 }
 
 void UI_PrintStringSmallBufferBold(const char *pString, uint8_t * buffer)
 {
-#ifdef ENABLE_SMALL_BOLD
-    const uint8_t *font = gFontSmallBoldPacked;
-#else
-    const uint8_t *font = gFontSmallPacked;
-#endif
+    const uint8_t *font = FONT_SMALL_BOLD;
     UI_PrintStringBuffer(pString, buffer, font);
 }
 
@@ -177,8 +223,8 @@ void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
         {
             bCanDisplay = true;
             if(c>='0' && c<='9' + 1) {
-                memcpy(pFb0 + 2, gFontBigDigits[c-'0'],                  char_width - 3);
-                memcpy(pFb1 + 2, gFontBigDigits[c-'0'] + char_width - 3, char_width - 3);
+                FW_ASSETS_Read(gFontBigDigits[c-'0'],                  pFb0 + 2, char_width - 3);
+                FW_ASSETS_Read(gFontBigDigits[c-'0'] + char_width - 3, pFb1 + 2, char_width - 3);
             }
             else if(c=='.') {
                 *pFb1 = 0x60; pFb0++; pFb1++;
@@ -293,9 +339,12 @@ static void sort(int16_t *a, int16_t *b)
       const uint8_t *p = (const uint8_t *)pString;
 
       while ((c = *p++) && c != '\0') {
+        uint8_t glyph[3];
+
         c -= 0x20;
+        FW_ASSETS_Read(gFont3x5[c], glyph, sizeof(glyph));
         for (int i = 0; i < 3; ++i) {
-          pixels = gFont3x5[c][i];
+          pixels = glyph[i];
           for (int j = 0; j < 6; ++j) {
             if (pixels & 1) {
               if (statusbar)
@@ -330,10 +379,10 @@ static void sort(int16_t *a, int16_t *b)
     void UI_DisplayUnlockKeyboard(uint8_t shift) {
         if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
         {   // tell user how to unlock the keyboard
-            
-            //memcpy(gFrameBuffer[shift] + 2, gFontKeyLock, sizeof(gFontKeyLock));
-            UI_PrintStringSmallBold("UNLOCK KEYBOARD", 12, 0, shift);
-            //memcpy(gFrameBuffer[shift] + 120, gFontKeyLock, sizeof(gFontKeyLock));
+            char text[UI_TEXT_SIZE];
+
+            UI_LoadText(text, sizeof(text), UI_TEXT_UNLOCK_KEYBOARD);
+            UI_PrintStringSmallBold(text, 12, 0, shift);
 
             /*
             for (uint8_t i = 12; i < 116; i++)

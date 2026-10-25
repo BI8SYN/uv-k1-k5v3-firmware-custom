@@ -92,6 +92,13 @@ _Static_assert(APP_SCREEN_SAVE_LEN == sizeof(gStatusLine) + sizeof(gFrameBuffer)
                "the saved screen is the status line plus the frame buffer");
 _Static_assert(APP_SLOT_BASE(APP_SLOT_COUNT) <= 0x001DE000u,
                "overlay app slots overlap the Sonic 4K reserve");
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+/* The app region may grow up to 100 slots; the firmware asset zones follow. */
+#define APP_SLOT_CEILING 100u
+_Static_assert(APP_SLOT_COUNT <= APP_SLOT_CEILING &&
+               APP_SLOT_BASE(APP_SLOT_CEILING) <= MB_ASSET_REGION_BASE,
+               "overlay app slots overlap the firmware assets");
+#endif
 
 enum {
     APP_AVAILABLE_CAPS = APP_CAP_CFG_PROXY

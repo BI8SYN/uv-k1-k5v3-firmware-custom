@@ -20,6 +20,46 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define UI_TEXT_SIZE 17u
+
+typedef enum {
+    UI_TEXT_VFO_NORMAL = 0,
+    UI_TEXT_VFO_BUSY,
+    UI_TEXT_VFO_BAT_LOW,
+    UI_TEXT_VFO_TX_DISABLE,
+    UI_TEXT_VFO_TIMEOUT,
+    UI_TEXT_VFO_VOLT_HIGH,
+    UI_TEXT_LOW_BATTERY,
+    UI_TEXT_SCAN_LIST,
+    UI_TEXT_TRIPLE_WATCH,
+    UI_TEXT_QUAD_WATCH,
+    UI_TEXT_UNLOCK_KEYBOARD,
+    UI_TEXT_SCANNER_SAVE_PROMPT,
+    UI_TEXT_SCANNER_SAVE_PREFIX,
+    UI_TEXT_SCANNER_SEARCH_FREQ,
+    UI_TEXT_SCANNER_SEARCH_TONE,
+    UI_TEXT_SCANNER_COMPLETE,
+    UI_TEXT_SCANNER_FAILED,
+    UI_TEXT_SCANNER_FREQ_UNKNOWN,
+    UI_TEXT_SCANNER_TONE_UNKNOWN,
+    UI_TEXT_SCANNER_TONE_NONE,
+    UI_TEXT_APP_TITLE,
+    UI_TEXT_APP_ERROR,
+    UI_TEXT_PRESS_ANY_KEY,
+    UI_TEXT_NO_APPS,
+    UI_TEXT_BAD_SLOT,
+    UI_TEXT_NO_APP,
+    UI_TEXT_UPDATE_APP,
+    UI_TEXT_UPDATE_FIRMWARE,
+    UI_TEXT_REINSTALL_APP,
+    UI_TEXT_AUTH,
+    UI_TEXT_NOT_SUPPORTED,
+    UI_TEXT_ERROR,
+    UI_TEXT_COUNT
+} UI_Text_t;
+
+void UI_LoadText(char *buffer, uint32_t size, UI_Text_t text);
+
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber);
 void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width);
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
