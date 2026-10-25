@@ -50,7 +50,8 @@ static struct {
     uint8_t raw, stable, element, memoryRaw, key;
     bool pending, mark, ready, releasing, keyHandled, redraw;
     uint32_t rxAt, decAt;
-    uint8_t exercise, playing, rxIndex, rxMask, rxCode, code, used, score;
+    uint16_t rxMask, rxCode, code;
+    uint8_t exercise, playing, rxIndex, used, score;
     bool reveal, corrected, overflow;
     char target[6], answer[49];
     char text[TEXT_SIZE];
@@ -107,14 +108,17 @@ static char *put(char *out, uint32_t id)
     return out;
 }
 
-/* Root bit 1 followed by Morse bits (dit=0, dah=1), common to RX and decoder.
- * A-Z then 0-9. No audio samples and no large word list are held in RAM. */
-static const uint8_t morse[] = {
-    5,24,26,12,2,18,14,16,4,23,13,20,7,6,15,22,29,10,8,3,9,17,11,25,27,28,63,47,39,35,33,32,48,56,60,62
-};
+/* Up to 4 little-endian asset bytes, 0 where the read falls short. */
+static __attribute__((noinline)) uint32_t readAsset(uint16_t offset, uint8_t len)
+{
+    uint32_t v=0; A->asset_read(offset,&v,len); return v;
+}
 
-static char letter(uint8_t i) { return i < 26u ? (char)('A'+i) : (char)('0'+i-26u); }
-static uint8_t encode(char c) { return morse[c <= '9' ? c-'0'+26 : c-'A']; }
+/* Morse lives in the assets as direct tables: the RX group pool, code ->
+ * character and character -> code (root bit 1, dit=0, dah=1, up to 9 elements).
+ * Prosigns without a character show as an ASCII sign; '*' marks unknown. */
+static char letter(uint8_t i) { return (char)readAsset((uint16_t)(POOL_OFFSET+i),1); }
+static uint16_t encode(char c) { return (uint16_t)readAsset((uint16_t)(ENCODE_OFFSET+2u*(uint8_t)(c-'!')),2); }
 
 static uint32_t unit(uint8_t wpm)
 {
@@ -140,9 +144,7 @@ static void appendDecoded(char c)
 static void finishLetter(void)
 {
     if (g.code == 1u) return;
-    char c = '?';
-    for (uint8_t i=0; i<36u; i++) if (morse[i] == g.code) c = letter(i);
-    appendDecoded(c);
+    appendDecoded((char)readAsset((uint16_t)(DECODE_OFFSET+g.code),1));
     g.code = 1u;
 }
 
@@ -195,7 +197,7 @@ static void playback(uint32_t now)
         if (!g.rxMask) {
             if (g.rxIndex == g.cfg.length) { g.playing=0; g.redraw=true; return; }
             g.rxCode = encode(g.target[g.rxIndex]);
-            g.rxMask=32;
+            g.rxMask=MAX_CODE;
             while (!(g.rxCode & g.rxMask)) g.rxMask >>= 1;
             g.rxMask >>= 1;
         }
@@ -208,7 +210,7 @@ static void startExercise(bool fresh, uint32_t now)
 {
     if (fresh || !g.target[0]) {
         for (uint8_t i=0; i<g.cfg.length; i++)
-            g.target[i]=letter((uint8_t)remu(A->rand32(),36u));
+            g.target[i]=letter((uint8_t)remu(A->rand32(),POOL_COUNT));
         g.target[g.cfg.length]=0;
     }
     clearAnswer(); g.playing=1; g.rxIndex=g.rxMask=0; g.rxAt=now;
@@ -276,7 +278,7 @@ static uint32_t tone(bool on)
             bool paddle=g.cfg.mode!=STRAIGHT;
             uint8_t dash = paddle ? g.element==2u : duration>=2u*d;
             if (paddle ? g.element!=0 : duration*3u>=d) {
-                if (g.code<32u && (paddle || duration<=5u*d)) g.code=(uint8_t)((g.code<<1)|dash);
+                if (g.code && g.code<MAX_CODE && (paddle || duration<=5u*d)) g.code=(uint16_t)((g.code<<1)|dash);
                 else g.code=0;
             }
             g.decAt=now;
@@ -453,8 +455,7 @@ void app_main(const app_api_t *api)
     }
     g.exercise=g.playing=0;g.target[0]=0;clearAnswer();
     g.a = api;
-    uint32_t magic=0;
-    if(A->asset_read(0,&magic,4)!=4 || magic!=0x33335443u){unavailable(api);return;}
+    if(readAsset(0,4)!=0x33335443u){unavailable(api);return;}
     A->cfg_load((uint8_t *)&g.cfg, sizeof(g.cfg));
     if (g.cfg.magic != CFG_MAGIC || g.cfg.mode > IAMB_B ||
         (uint8_t)(g.cfg.wpm-5u)>55u || g.cfg.reverse > 1 ||
