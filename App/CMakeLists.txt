@@ -314,6 +314,14 @@ if(ENABLE_FEAT_F4HWN_FW_ASSETS AND NOT (ENABLE_FEAT_F4HWN_MULTIBOOT AND (ENABLE_
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_FW_ASSETS requires ENABLE_FEAT_F4HWN_MULTIBOOT (running slot, asset zones) and a serial link (ENABLE_UART or ENABLE_USB) to upload the assets.")
 endif()
 
+# Optional font selector and its alternative font assets.
+enable_feature(ENABLE_FEAT_F4HWN_SET_FNT
+    font_alt.c
+)
+if(ENABLE_FEAT_F4HWN_SET_FNT AND NOT ENABLE_FEAT_F4HWN_FW_ASSETS)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_SET_FNT requires ENABLE_FEAT_F4HWN_FW_ASSETS.")
+endif()
+
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO_SAV)

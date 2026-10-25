@@ -129,6 +129,9 @@ enum
     MENU_SET_LCK,
     MENU_SET_MET,
     MENU_SET_GUI,
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        MENU_SET_FNT,
+    #endif
     MENU_SET_TMR,
     #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
         MENU_SET_SCN,

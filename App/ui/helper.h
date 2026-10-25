@@ -67,7 +67,19 @@ void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_
 void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
 void UI_PrintStringSmallBufferNormal(const char *pString, uint8_t *buffer);
 void UI_PrintStringSmallBufferBold(const char *pString, uint8_t * buffer);
+void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, const uint8_t *font);
 void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center);
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    void UI_DisplayFrequencyWithFont(const char *string, uint8_t X, uint8_t Y,
+                                     bool center, uint8_t font);
+#endif
+
+// SetFnt value applied to the UI, or the default family when it is disabled.
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    #define UI_FONT_SETTING gSetting_set_fnt
+#else
+    #define UI_FONT_SETTING 0u
+#endif
 
 void UI_DisplayPopup(const char *string);
 

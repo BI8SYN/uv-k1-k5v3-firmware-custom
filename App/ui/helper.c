@@ -107,7 +107,10 @@ void UI_PrintStringBuffer(const char *pString, uint8_t *buffer, const uint8_t *f
         if (pString[i] > ' ' && pString[i] < 127) {
             const uint32_t offset = i * char_spacing + 1;
 #ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
-            FW_ASSETS_Read(font + index * FONT_SMALL_WIDTH, buffer + offset, FONT_SMALL_WIDTH);
+            // An italic glyph is one column wider: it fills the spacing column.
+            const uint8_t width = FONT_GetSmallWidth(font);
+
+            FW_ASSETS_Read(font + index * width, buffer + offset, width);
 #else
             uint16_t bit = index * FONT_SMALL_WIDTH * 7u;
 
@@ -158,7 +161,7 @@ void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_
 
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
 {
-    UI_PrintStringSmall(pString, Start, End, Line, FONT_SMALL_NORMAL);
+    UI_PrintStringSmall(pString, Start, End, Line, FONT_GetSmallFont(UI_FONT_SETTING, false));
 }
 
 void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
@@ -192,24 +195,29 @@ void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_
 
 void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
 {
-    const uint8_t *font = FONT_SMALL_BOLD;
-
-    UI_PrintStringSmall(pString, Start, End, Line, font);
+    UI_PrintStringSmall(pString, Start, End, Line, FONT_GetSmallFont(UI_FONT_SETTING, true));
 }
 
 void UI_PrintStringSmallBufferNormal(const char *pString, uint8_t * buffer)
 {
-    UI_PrintStringBuffer(pString, buffer, FONT_SMALL_NORMAL);
+    UI_PrintStringBuffer(pString, buffer, FONT_GetSmallFont(UI_FONT_SETTING, false));
 }
 
 void UI_PrintStringSmallBufferBold(const char *pString, uint8_t * buffer)
 {
-    const uint8_t *font = FONT_SMALL_BOLD;
-    UI_PrintStringBuffer(pString, buffer, font);
+    UI_PrintStringBuffer(pString, buffer, FONT_GetSmallFont(UI_FONT_SETTING, true));
 }
 
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+void UI_DisplayFrequencyWithFont(const char *string, uint8_t X, uint8_t Y,
+                                 bool center, uint8_t font)
+#else
 void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
+#endif
 {
+#ifndef ENABLE_FEAT_F4HWN_SET_FNT
+    const uint8_t font = FONT_BIG_DIGITS_DEFAULT;
+#endif
     const unsigned int char_width  = 13;
     uint8_t           *pFb0        = gFrameBuffer[Y] + X;
     uint8_t           *pFb1        = pFb0 + 128;
@@ -223,8 +231,7 @@ void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
         {
             bCanDisplay = true;
             if(c>='0' && c<='9' + 1) {
-                FW_ASSETS_Read(gFontBigDigits[c-'0'],                  pFb0 + 2, char_width - 3);
-                FW_ASSETS_Read(gFontBigDigits[c-'0'] + char_width - 3, pFb1 + 2, char_width - 3);
+                FONT_DrawBigDigit(font, c - '0', pFb0, pFb1);
             }
             else if(c=='.') {
                 *pFb1 = 0x60; pFb0++; pFb1++;
@@ -243,45 +250,14 @@ void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
     }
 }
 
-/*
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+// Big digits in the SetFnt font, for every screen. Kept as a function because
+// overlay apps call it through the app API and must follow the setting too.
 void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
 {
-    const unsigned int char_width  = 13;
-    uint8_t           *pFb0        = gFrameBuffer[Y] + X;
-    uint8_t           *pFb1        = pFb0 + 128;
-    bool               bCanDisplay = false;
-
-    if (center) {
-        uint8_t len = 0;
-        for (const char *ptr = string; *ptr; ptr++)
-            if (*ptr != ' ') len++; // Ignores spaces for centering
-
-        X -= (len * char_width) / 2; // Centering adjustment
-        pFb0 = gFrameBuffer[Y] + X;
-        pFb1 = pFb0 + 128;
-    }
-
-    for (; *string; string++) {
-        char c = *string;
-        if (c == '-') c = '9' + 1; // Remap of '-' symbol
-
-        if (bCanDisplay || c != ' ') {
-            bCanDisplay = true;
-            if (c >= '0' && c <= '9' + 1) {
-                memcpy(pFb0 + 2, gFontBigDigits[c - '0'], char_width - 3);
-                memcpy(pFb1 + 2, gFontBigDigits[c - '0'] + char_width - 3, char_width - 3);
-            } else if (c == '.') {
-                memset(pFb1, 0x60, 3); // Replaces the three assignments
-                pFb0 += 3;
-                pFb1 += 3;
-                continue;
-            }
-        }
-        pFb0 += char_width;
-        pFb1 += char_width;
-    }
+    UI_DisplayFrequencyWithFont(string, X, Y, center, UI_FONT_SETTING);
 }
-*/
+#endif
 
 void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black)
 {

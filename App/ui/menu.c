@@ -69,6 +69,29 @@ _Static_assert(ARRAY_SIZE(MenuListId) == ARRAY_SIZE(MenuListName), "menu list ta
 
 const uint8_t FIRST_HIDDEN_MENU_ITEM = MENU_F_LOCK;
 
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+static const char gSetFntLabels[][19] FW_ASSET =
+{
+    "NORMAL / TERMINUS",
+    "NORMAL / VCR",
+    "NORMAL / ALT",
+    "NORMAL / 7 SEGMENT",
+    "NORMAL / ORIGINAL",
+    "CAPS / TERMINUS",
+    "CAPS / VCR",
+    "CAPS / ALT",
+    "CAPS / 7 SEGMENT",
+    "CAPS / ORIGINAL",
+    "ITALIC / TERMINUS",
+    "ITALIC / VCR",
+    "ITALIC / ALT",
+    "ITALIC / 7 SEGMENT",
+    "ITALIC / ORIGINAL"
+};
+_Static_assert(ARRAY_SIZE(gSetFntLabels) == FONT_VARIANT_COUNT,
+               "one SetFnt label per font variant");
+#endif
+
 const char gSubMenu_TXP[][6] FW_ASSET =
 {
     "USER",
@@ -483,7 +506,14 @@ static const uint8_t CatPower[]   = {
     MENU_SET_SAV,
 #endif
 };
-static const uint8_t CatDisplay[] = { MENU_MDF, MENU_PONMSG, MENU_ABR, MENU_ABR_MIN, MENU_ABR_MAX, MENU_ABR_ON_TX_RX, MENU_SET_CTR, MENU_SET_INV, MENU_SET_MET, MENU_SET_GUI, MENU_VOL };
+static const uint8_t CatDisplay[] = {
+    MENU_MDF, MENU_PONMSG, MENU_ABR, MENU_ABR_MIN, MENU_ABR_MAX,
+    MENU_ABR_ON_TX_RX, MENU_SET_CTR, MENU_SET_INV, MENU_SET_MET, MENU_SET_GUI,
+    MENU_VOL,
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    MENU_SET_FNT,
+#endif
+};
 static const uint8_t CatTimers[]  = { MENU_TOT, MENU_SET_TOT, MENU_SET_EOT, MENU_SET_TMR };
 static const uint8_t CatAudio[]   = {
     MENU_MIC, MENU_MIC_BAR, MENU_BEEP,
@@ -705,24 +735,35 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
-/* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule:
- * left edge `cap_left`, inclusive width `cap_w`, on framebuffer page `line`. Same
- * capsule pattern as GUI_DisplaySmallestInverse (0x3E rounded ends, 0x7F body) but
- * with the width decoupled from the text length, so two labels of different
- * lengths (e.g. "SLOT 2" / "CFG 4") share one width and each stays centred. */
+/* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule.
+ * `y` is the text's pixel position; the capsule extends one pixel above it.
+ * This uses the same shape as GUI_DisplaySmallestInverse, but may cross a
+ * framebuffer page boundary and its width is independent of the text length. */
 static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
-                                     uint8_t cap_w, uint8_t line)
+                                     uint8_t cap_w, uint8_t y)
 {
     const uint8_t cap_right = (uint8_t)(cap_left + cap_w - 1u);
     const uint8_t text_w    = (uint8_t)(strlen(text) * 4u - 1u); /* 3x5 glyphs: 4 px/char, last one 3 px wide */
     const uint8_t tx        = (uint8_t)(cap_left + (cap_w - text_w) / 2u);
+    const uint8_t page      = (uint8_t)((y - 1u) >> 3);
+    const uint8_t shift     = (uint8_t)((y - 1u) & 7u);
+    const uint16_t edge     = (uint16_t)0x3Eu << shift;
+    const uint16_t body     = (uint16_t)0x7Fu << shift;
 
-    GUI_DisplaySmallest(text, tx, (uint8_t)(line * 8u + 1u), false, true);
+    GUI_DisplaySmallest(text, tx, y, false, true);
 
-    gFrameBuffer[line][cap_left] ^= 0x3Eu;
+    gFrameBuffer[page][cap_left] ^= (uint8_t)edge;
     for (uint8_t x = (uint8_t)(cap_left + 1u); x < cap_right; x++)
-        gFrameBuffer[line][x] ^= 0x7Fu;
-    gFrameBuffer[line][cap_right] ^= 0x3Eu;
+        gFrameBuffer[page][x] ^= (uint8_t)body;
+    gFrameBuffer[page][cap_right] ^= (uint8_t)edge;
+
+    if ((body >> 8) != 0u && page + 1u < FRAME_LINES)
+    {
+        gFrameBuffer[page + 1u][cap_left] ^= (uint8_t)(edge >> 8);
+        for (uint8_t x = (uint8_t)(cap_left + 1u); x < cap_right; x++)
+            gFrameBuffer[page + 1u][x] ^= (uint8_t)(body >> 8);
+        gFrameBuffer[page + 1u][cap_right] ^= (uint8_t)(edge >> 8);
+    }
 }
 
 static void UI_MENU_DrawScanMixSummary(const uint8_t area_x1,
@@ -745,9 +786,9 @@ static void UI_MENU_DrawScanMixSummary(const uint8_t area_x1,
 
     sprintf(count, "%02u/%02u", (unsigned)selected,
             (unsigned)MR_CHANNELS_LIST);
-    UI_MENU_DrawFixedCapsule("SELECTED", label_x, label_w, 6);
+    UI_MENU_DrawFixedCapsule("SELECTED", label_x, label_w, 6u * 8u + 1u);
     UI_MENU_DrawFixedCapsule(count, (uint8_t)(label_x + label_w + gap),
-                             count_w, 6);
+                             count_w, 6u * 8u + 1u);
 }
 
 static void UI_MENU_DrawScanMixEditor(void)
@@ -774,7 +815,7 @@ static void UI_MENU_DrawScanMixEditor(void)
         }
 
         if (gScanMixEditorMask & (1u << index))
-            UI_MENU_DrawFixedCapsule("ON", 115, 11, line);
+            UI_MENU_DrawFixedCapsule("ON", 115, 11, (uint8_t)(line * 8u + 1u));
     }
 }
 
@@ -1416,8 +1457,8 @@ void UI_DisplayMenu(void)
                 const uint8_t slot_left = (uint8_t)((48u + LCD_WIDTH - pair_w) / 2u);  /* 59 */
                 const uint8_t cfg_left  = (uint8_t)(slot_left + cap_w + cap_gap);      /* 90 */
 
-                UI_MENU_DrawFixedCapsule(slot_lbl, slot_left, cap_w, 5);
-                UI_MENU_DrawFixedCapsule(cfg_lbl,  cfg_left,  cap_w, 5);
+                UI_MENU_DrawFixedCapsule(slot_lbl, slot_left, cap_w, 5u * 8u + 1u);
+                UI_MENU_DrawFixedCapsule(cfg_lbl,  cfg_left,  cap_w, 5u * 8u + 1u);
 #endif
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
@@ -1632,6 +1673,14 @@ void UI_DisplayMenu(void)
             MENU_SET_CHOICES(gSubMenu_SET_MET);
             goto copy_menu_choice;
 
+        #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+            case MENU_SET_FNT:
+                sprintf(String, "Font %u", (unsigned)gSubMenuSelection + 1u);
+                UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+                already_printed = true;
+                break;
+        #endif
+
         #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
             case MENU_SET_SCN:
                 MENU_SET_CHOICES(gSubMenu_SET_SCN);
@@ -1824,6 +1873,23 @@ void UI_DisplayMenu(void)
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";
         UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 5, 8);
     }
+
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    if (m == MENU_SET_FNT && gIsInSubMenu)
+    {
+        const uint8_t font = (uint8_t)gSubMenuSelection;
+
+        UI_PrintStringSmall("ABCDabcd", menu_item_x1, menu_item_x2, 3,
+                            FONT_GetSmallFont(font, false));
+        UI_DisplayFrequencyWithFont("01234", 55, 4, false, font);
+
+        FW_ASSETS_STRCPY(String, gSetFntLabels, font);
+        const uint8_t badge_w = (uint8_t)(strlen(String) * 4u + 3u);
+        const uint8_t badge_x = (uint8_t)(menu_item_x1 +
+            (menu_item_x2 - menu_item_x1 + 1u - badge_w) / 2u);
+        UI_MENU_DrawFixedCapsule(String, badge_x, badge_w, 15);
+    }
+#endif
 
     ST7565_BlitFullScreen();
 }

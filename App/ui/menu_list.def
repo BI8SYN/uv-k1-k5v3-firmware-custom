@@ -144,6 +144,9 @@
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     MENU_ITEM("SetCfg",      MENU_SET_CFG       ) // load another settings bank
 #endif
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    MENU_ITEM("SetFnt",      MENU_SET_FNT       )
+#endif
 #endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
