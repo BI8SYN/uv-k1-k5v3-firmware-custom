@@ -43,6 +43,7 @@ void FONT_DrawBigGlyph(uint8_t glyph, uint8_t *top, uint8_t *bottom);
     typedef enum {
         FONT_TEXT_NORMAL,
         FONT_TEXT_SMALL_CAPS,
+        FONT_TEXT_BLOCK,
         FONT_TEXT_VARIANT_COUNT
     } FontTextVariant_t;
 
@@ -70,6 +71,7 @@ extern const uint8_t gFont3x5[96][3];
     #endif
     #ifdef ENABLE_FEAT_F4HWN_SET_FNT
         extern const uint8_t gFontSmallSmallCaps[FONT_SMALL_GLYPH_COUNT][FONT_SMALL_WIDTH];
+        extern const uint8_t gFontSmallBlock[FONT_SMALL_GLYPH_COUNT][FONT_SMALL_WIDTH];
         #ifdef ENABLE_SMALL_BOLD
             extern const uint8_t gFontSmallBoldSmallCaps[FONT_SMALL_GLYPH_COUNT][FONT_SMALL_WIDTH];
         #endif

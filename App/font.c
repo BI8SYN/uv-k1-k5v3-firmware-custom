@@ -706,7 +706,9 @@ const uint8_t gFontSmall[95-1][6] FW_ASSET =
 // Text families, in SetFnt order (the quotient of the SetFnt value).
 static const uint8_t *const gFontSmallFamilies[] =
 {
-    (const uint8_t *)gFontSmall, (const uint8_t *)gFontSmallSmallCaps
+    (const uint8_t *)gFontSmall,
+    (const uint8_t *)gFontSmallSmallCaps,
+    (const uint8_t *)gFontSmallBlock
 };
 _Static_assert(sizeof(gFontSmallFamilies) / sizeof(gFontSmallFamilies[0]) == FONT_TEXT_VARIANT_COUNT,
                "one small font per text family");
@@ -714,7 +716,9 @@ _Static_assert(sizeof(gFontSmallFamilies) / sizeof(gFontSmallFamilies[0]) == FON
 #ifdef ENABLE_SMALL_BOLD
 static const uint8_t *const gFontSmallBoldFamilies[] =
 {
-    (const uint8_t *)gFontSmallBold, (const uint8_t *)gFontSmallBoldSmallCaps
+    (const uint8_t *)gFontSmallBold,
+    (const uint8_t *)gFontSmallBoldSmallCaps,
+    (const uint8_t *)gFontSmallBlock
 };
 _Static_assert(sizeof(gFontSmallBoldFamilies) == sizeof(gFontSmallFamilies),
                "one bold small font per text family");
