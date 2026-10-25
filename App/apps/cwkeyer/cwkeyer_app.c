@@ -129,7 +129,10 @@ _Static_assert(SERVICE_MS > 0u && SERVICE_MS <= UINT8_MAX && BATTERY_MS % SERVIC
 #define RX_SETTLE_MS         50u   /* RX return: REG_30 cycle to amplifier on */
 #define AMP_SETTLE_MS        10u   /* TX: AF output settle before the amplifier */
 #if CW_KEYER_USB
-#define CONFIRM_CYCLES     9600u   /* paddle start: second read 200 us later */
+#define AMP_START_MS         25u   /* TX: amplifier start-up before the first mark */
+#endif
+#if CW_KEYER_USB
+#define DEBOUNCE_SHIFT       17u   /* contacts: 2^17 cycles = 2.7 ms stable */
 #endif
 
 _Static_assert(SMETER_BAR_X + SMETER_MAX_LEVEL * 5u <= 128u,
@@ -212,10 +215,13 @@ static struct {
     uint8_t armState; /* 0/1 release, 2/3 hold, 4/5 final release, 6 armed */
 #endif
     uint8_t wpm, mode, uiCandidate, paBias, paControl;
+#if CW_KEYER_USB
+    uint8_t padRaw, padStable;
+#else
     uint8_t padRaw, padStable, padPolls;
+#endif
     uint8_t smMs;
 #if CW_KEYER_USB
-    uint8_t ampMs;   /* amplifier on in that many service milliseconds */
 #if IAMBIC_ENGINE
     uint8_t iambic; /* element bits 0/1, mark 2, pending 3, mode 4/5 */
 #endif
@@ -233,6 +239,9 @@ static struct {
     uint32_t moder, pupdr, apbenr1;   /* saved USB-port bits only */
 #endif
     uint32_t ticksPerMs, lastVal;
+#if CW_KEYER_USB
+    uint32_t padSince;   /* cycle count of the last contact change */
+#endif
     int32_t smDbm;   /* held reading, capped at SMETER_DBM_MAX */
 #if CW_KEYER_USB
     /* Candidate qualification precedes navigation repeats, never overlaps. */
@@ -413,9 +422,6 @@ static void returnToRx(void)
     a->delay_ms(10u);
     a->tx_end();
     g.txReady = false;
-#if CW_KEYER_USB
-    g.ampMs = 0u;
-#endif
     g.hangElapsedMs = 0u;
     configureCwRx(false);
     if (g.speaker)
@@ -832,6 +838,19 @@ static uint8_t paddles(uint8_t key)
  * per ~1.2 ms (keypad scan plus the 1 ms wait), that is about 4.8 ms. */
 static uint8_t debounced(uint8_t p)
 {
+#if CW_KEYER_USB
+    /* USB-C: qualified on time, as in CW Trainer. Counting polls stretched
+     * the filter whenever a poll took longer (S-meter blits are byte-paced
+     * since 6.3.0), delaying every first contact (#726). */
+    const uint32_t now = A->cycles_48mhz();
+    if (p != g.padRaw) {
+        g.padRaw = p;
+        g.padSince = now;
+    } else if ((now - g.padSince) >> DEBOUNCE_SHIFT) {
+        g.padStable = p;
+    }
+    return g.padStable;
+#else
     if (p != g.padRaw) {
         g.padRaw = p;
         g.padPolls = 0u;
@@ -841,6 +860,7 @@ static uint8_t debounced(uint8_t p)
         g.padStable = p;
     }
     return g.padStable;
+#endif
 }
 
 #if IAMBIC_ENGINE
@@ -906,8 +926,6 @@ static void prepareTx(void)
      * recalibrate the VCO and latch the corrected synthesizer frequency. Keep
      * internal PA gain disabled when the link comes back up. */
     a->bk_write(REG_TX_LINK, TX_LINK_OFF);
-    a->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
-    a->delay_ms(PLL_LOCK_MS);
 
     /* AF_ALAM is the BK4829's local alarm/tone output. Unlike AF_BEEP, it
      * remains audible while REG_50 keeps the TX modulation path muted. Keep
@@ -916,18 +934,20 @@ static void prepareTx(void)
     a->bk_write(REG_TONE, TONE1_CONFIG);
     sidetone(false);
     a->set_af(AF_ALAM);
-#if CW_KEYER_USB
-    /* Preserve the USB arming path: it lets the AF output settle
-     * asynchronously before the usual first paddle mark. */
-    g.ampMs = AMP_SETTLE_MS;
-#else
-    /* CW Keyer has no arming interval. Keep the tone and RF off until the AF
-     * output has settled, then enable the amplifier before the first mark so
-     * its local sidetone is not clipped. */
+    /* Let the AF output settle, then enable the amplifier, both while the TX
+     * link is still down: with the link up and the PA off, a nearby receiver
+     * hears the leak during the wait as a dit before the first mark (#726). */
     if (g.speaker)
         a->delay_ms(AMP_SETTLE_MS);
     a->audio_path(g.speaker);
+#if CW_KEYER_USB
+    /* The amplifier takes longer than the PLL lock and the ramp to start:
+     * without this wait a first dit's sidetone is clipped (#726). */
+    if (g.speaker)
+        a->delay_ms(AMP_START_MS);
 #endif
+    a->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
+    a->delay_ms(PLL_LOCK_MS);
     g.txReady = true;
     g.denied = false;
     g.statusRedraw = true;
@@ -976,13 +996,7 @@ static void serviceOneMs(void)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->delay_ms(1u);
-#if CW_KEYER_USB
-    if (g.ampMs && --g.ampMs == 0u)
-        a->audio_path(g.speaker);
     const uint16_t hangMs = g.breakInMs;
-#else
-    const uint16_t hangMs = g.breakInMs;
-#endif
     /* hangElapsedMs needs no reset here: keyOn() zeroes it and it only counts
      * while the key is up. */
     if (g.keyDown && ++g.markMs >= MARK_MAX_MS) {
@@ -1394,19 +1408,15 @@ void app_main(const app_api_t *api)
          * paddle contacts then only reach the help key handler. */
         const uint8_t raw = paddles(key);
         uint8_t pad = debounced(raw);
-        /* Paddle start on the first closed reading. On USB-C it is confirmed
-         * 200 us later (a spike is not a contact); SIDE keys come from the
+#if !CW_KEYER_USB
+        /* Paddle start on the first closed reading: SIDE keys come from the
          * debounced keypad scan. Bounce no longer matters once an element
-         * runs: the paddles are read again after the space. */
-        if (g.mode != MODE_STRAIGHT && raw && !pad) {
-#if CW_KEYER_USB
-            const uint32_t t = A->cycles_48mhz();
-            while (A->cycles_48mhz() - t < CONFIRM_CYCLES)
-                ;
-            if (paddles(key) == raw)
+         * runs: the paddles are read again after the space. On USB-C the
+         * start waits for the time-qualified contact (2.7 ms): a spike is
+         * not a contact. */
+        if (g.mode != MODE_STRAIGHT && raw && !pad)
+            pad = raw;
 #endif
-                pad = raw;
-        }
 #if CW_KEYER_USB
         const bool keying = armUsb(key) && !g.help;
 #else
@@ -1416,16 +1426,32 @@ void app_main(const app_api_t *api)
             (key == APP_KEY_PTT || (g.mode == MODE_STRAIGHT && pad));
         if (straight) {
             resetUiInput();
+#if CW_KEYER_USB
+            /* Remember how late the carrier came after the contact closed
+             * (qualification, TX setup, amplifier, ramp): the release is
+             * held as long, so the mark keeps its keyed length (#726). */
+            if (!g.keyDown && keyOn())
+                g.armSince = pad ? A->cycles_48mhz() - g.padSince : 0u;
+#else
             if (!g.keyDown)
                 keyOn();
+#endif
         } else if (g.keyDown) {
+#if CW_KEYER_USB
+            while (A->cycles_48mhz() - g.padSince < g.armSince)
+                ;
+#endif
             keyOff();
             resetUiInput();
         } else if (keying && g.mode != MODE_STRAIGHT && pad) {
             resetUiInput();
             A->backlight_on();
             runPaddle(pad);
+#if CW_KEYER_USB
+            g.padRaw = g.padStable = 0u;   /* no stale restart */
+#else
             g.padRaw = g.padStable = g.padPolls = 0u;   /* no stale restart */
+#endif
         } else if (key != APP_KEY_INVALID) {
             handleUiInput(key);
         } else {

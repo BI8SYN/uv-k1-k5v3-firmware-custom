@@ -6,6 +6,14 @@ own 4 KiB overlay. The implementation is shared with `CW Keyer`, but this
 binary contains only the USB-C paddle input path. Since version 1.4 the red
 LED lights for each transmitted mark (see
 [Red TX LED](../cwkeyer/README.md#red-tx-led) in the CW Keyer README).
+Since version 1.5 (#726): a contact change is qualified on time (2.7 ms stable
+on the 48 MHz cycle counter, as in CW Trainer) instead of on a number of polls,
+so a slow poll (S-meter blits are byte-paced since 6.3.0) no longer delays it;
+the speaker amplifier is enabled 25 ms before the first mark of each TX
+session, before the TX link comes up (no carrier leak during the wait), so the
+first element keeps its sidetone; and in STRAIGHT the release
+is held as long as the carrier came late after the contact closed, so every
+mark, the first dit included, keeps its keyed length.
 
 ## Requirements and install
 
