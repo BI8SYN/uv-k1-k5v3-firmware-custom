@@ -1,4 +1,4 @@
-# CW Trainer 0.4
+# CW Trainer 0.5
 
 Application autonome Fusion **ABI1/API3 pour UV-K5 V3**.
 [README principal en anglais](README.md) · [Validation détaillée](VALIDATION.md)
@@ -9,6 +9,35 @@ IAMB A/B, TX FREE, RX TRAIN, RX>TX, audio, décodage et ergonomie. Aucune vérit
 pioche n’a été testée ; STRAIGHT reste validé uniquement en logiciel. Un second
 récepteur sur la même fréquence n’a détecté aucune émission pendant les essais :
 c’est un contrôle pratique, pas une mesure instrumentale ni une certification RF.
+
+## Version 0.5
+
+La version 0.5 ajoute toute la ponctuation et les prosignes (issue #722). TX FREE
+et RX>TX les décodent, et les groupes de RX TRAIN / RX>TX puisent dans les 63
+signes. Une suite d’éléments qui ne correspond à aucun signe s’affiche
+désormais `*`, que le Morse n’émet jamais : un vrai `?` (`..--..`) n’est plus
+ambigu.
+
+- Ponctuation : `. , ? ' ! / ( ) & : ; = + - _ " $ @`
+- Prosignes ayant un caractère : AR = `+`, AS = `&`, BT = `=`, KN = `(`
+- Autres prosignes, affichés par un signe absent du Morse :
+
+| Affiché | Prosigne | Morse | Sens |
+|---|---|---|---|
+| `[` | CT / KA | `-.-.-` | début de transmission |
+| `]` | SK / VA | `...-.-` | fin de contact |
+| `^` | VE / SN | `...-.` | compris |
+| `~` | HH | `........` | erreur |
+| `#` | SOS | `...---...` | détresse |
+| `>` | CL | `-.-..-..` | fermeture de la station |
+| `\|` | BK | `-...-.-` | break |
+| `{` | AA | `.-.-` | nouvelle ligne |
+| `}` | DO | `-..---` | passage au Wabun |
+
+Décodage et lecture gèrent maintenant jusqu’à 9 éléments (SOS). Les tables
+Morse passent dans les assets en flash externe, en accès direct (code vers
+signe, signe vers code) : l’overlay descend à 4 060 o, les assets montent à
+2 763 o sur 3 840.
 
 ## Version 0.4
 
@@ -27,7 +56,7 @@ ou recherche de correctif dans le firmware.
 ## Fonctions et installation
 
 - TX FREE : pioche USB/PTT en STRAIGHT, paddle USB IAMB A/B, sidetone et décodage
-  A–Z/0–9 sur trois lignes avec défilement continu.
+  A–Z, 0–9, ponctuation et prosignes sur trois lignes avec défilement continu.
 - RX TRAIN : groupes aléatoires cachés, écoute, prise de notes éventuelle sur
   papier, puis révélation. Aucune manipulation ni correction de réponse.
 - RX>TX : écoute, reproduction, décodage, score positionnel et sons de résultat.
@@ -36,7 +65,7 @@ ou recherche de correctif dans le firmware.
 
 Avec un firmware Fusion API3 compatible, installer **CWTrainer.app complet,
 assets compris**, dans un slot libre avec UV Studio. L’ouvrir depuis le menu
-Apps et vérifier la version 0.4 dans les informations du slot. Aucun changement
+Apps et vérifier la version 0.5 dans les informations du slot. Aucun changement
 du firmware ni de l’enregistrement des applications.
 Garder le binaire précédent pour retour arrière.
 

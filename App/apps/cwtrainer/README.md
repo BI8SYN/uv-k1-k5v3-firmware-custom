@@ -1,4 +1,4 @@
-# CW Trainer 0.4
+# CW Trainer 0.5
 
 Standalone Morse practice for **UV-K5 V3**, F4HWN Fusion **ABI 1 / API 3**.
 [Documentation française](README.fr.md) · [Validation and memory report](VALIDATION.md)
@@ -11,6 +11,33 @@ straight key was not tested; STRAIGHT is validated in software only. A second
 receiver on the same frequency detected no RF during the trials; this is a
 practical check, not an instrumental demonstration of absolute RF absence or
 an RF certification.
+
+## 0.5 version
+
+Version 0.5 adds the full punctuation set and the prosigns (issue #722). TX FREE
+and RX>TX decode them, and RX TRAIN / RX>TX groups draw from all 63 signs.
+Elements that match no sign now show as `*`, which Morse never sends, so a real
+`?` (`..--..`) is no longer ambiguous.
+
+- Punctuation: `. , ? ' ! / ( ) & : ; = + - _ " $ @`
+- Prosigns with a character: AR = `+`, AS = `&`, BT = `=`, KN = `(`
+- Other prosigns, shown as a sign Morse does not use:
+
+| Shown | Prosign | Morse | Meaning |
+|---|---|---|---|
+| `[` | CT / KA | `-.-.-` | start of transmission |
+| `]` | SK / VA | `...-.-` | end of contact |
+| `^` | VE / SN | `...-.` | understood |
+| `~` | HH | `........` | error |
+| `#` | SOS | `...---...` | distress |
+| `>` | CL | `-.-..-..` | closing down |
+| `\|` | BK | `-...-.-` | break |
+| `{` | AA | `.-.-` | new line |
+| `}` | DO | `-..---` | shift to Wabun |
+
+The decoder and playback now handle up to 9 elements (SOS). The Morse tables
+moved to the assets in external flash as direct lookups (code to sign, sign to
+code), so the overlay shrinks to 4,060 B; assets grow to 2,763 B of 3,840.
 
 ## 0.4 version
 
@@ -28,8 +55,8 @@ hardware behavior; no firmware-side SIDE1 diagnosis or change is included.
 ## Features
 
 - **TX FREE:** USB straight key or iambic A/B paddle, local sidetone and decoded
-  A–Z/0–9 text scrolling over three lines. PTT also works as a straight key.
-- **RX TRAIN:** listen to random alphanumeric groups, optionally write them on
+  A–Z, 0–9, punctuation and prosign text scrolling over three lines. PTT also works as a straight key.
+- **RX TRAIN:** listen to random groups of letters, digits, punctuation and prosigns, optionally write them on
   paper, then reveal the target. Key 7 generates/plays a group; PTT replays it.
 - **RX>TX:** listen, reproduce with the key/paddle, and compare the decoded
   response with the target. Positional score and distinct success/error sounds.
@@ -41,7 +68,7 @@ hardware behavior; no firmware-side SIDE1 diagnosis or change is included.
 
 Use compatible Fusion API3 firmware on UV-K5 V3. Install the **complete
 `CWTrainer.app` including its assets** into a free app slot using UV Studio.
-Open it from the Apps menu; verify version 0.4 in the slot information.
+Open it from the Apps menu; verify version 0.5 in the slot information.
 No firmware rebuild, application registration or integration with another app
 is needed. Keep a previous `.app` for rollback.
 

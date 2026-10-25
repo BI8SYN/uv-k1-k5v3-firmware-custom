@@ -26,7 +26,8 @@ def function(text, name):
     return text[start:end-1]
 
 source = (app / 'cwtrainer_app.c').read_text().replace(
-    '#include "../app_api.h"', '#include "host_api.h"')
+    '#include "../app_api.h"', '#include "host_api.h"').replace(
+    'section(".text.entry"), ', '')  # ELF section name, rejected by Mach-O hosts
 import runpy
 runpy.run_path(str(app/'gen_assets.py'))['generate']()
 source=source.replace('#include "cwtrainer_assets.h"',(app/'cwtrainer_assets.h').read_text())
@@ -55,6 +56,12 @@ helper = (repo / 'App/ui/helper.c').read_text()
 font = (repo / 'App/font.c').read_text()
 font_start = font.index('const uint8_t gFontSmallPacked[')
 renderer = r'''
+/* v7 fonts: FW_ASSET arrays read through FW_ASSETS_Read; host reads them in place. */
+#define FW_ASSET
+#define FW_ASSETS_Read(src,dst,n) memcpy((dst),(src),(n))
+#define FONT_GetSmallFont(variant,bold) ((void)(variant),(void)(bold),gFontSmallPacked)
+#define UI_FONT_SETTING 0u
+#define LCD_BLANK() false
 #define FONT_SMALL_WIDTH 6u
 #define FONT_SMALL_PACKED_SIZE 494u
 #define LCD_WIDTH 128u
@@ -184,9 +191,16 @@ static void tick(unsigned p){us+=1000;step(cycles(),(uint8_t)p);}
 static void run(unsigned ms,unsigned p){for(unsigned i=0;i<ms;i++)tick(p);}
 static void check(const char *name){assert(!g.mark);printf("PASS %s\n",name);cases++;}
 static const char *const patterns[]={
- ".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..","--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-","-.--","--..",
- "-----",".----","..---","...--","....-",".....","-....","--...","---..","----."
+ ".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..",
+ "--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-",
+ "-.--","--..","-----",".----","..---","...--","....-",".....","-....","--...","---..","----.",
+ ".-.-.-","--..--","..--..",".----.","-.-.--","-..-.","-.--.","-.--.-",".-...","---...","-.-.-.","-...-",
+ ".-.-.","-....-","..--.-",".-..-.","...-..-",".--.-.","-.-.-","...-.-","...-.","........","...---...","-.-..-..",
+ "-...-.-",".-.-","-..---"
 };
+#ifdef POOL_COUNT /* absent from the V0.2 negative control */
+_Static_assert(sizeof patterns/sizeof *patterns==POOL_COUNT,"one pattern per pool character, in pool order");
+#endif
 static void playAll(void){unsigned limit=0;while(g.playing){us+=1000;playback(cycles());assert(++limit<30000);}}
 static void userChar(unsigned index){
  for(const char *p=patterns[index];*p;p++){
@@ -286,25 +300,27 @@ int main(void){
  MISSING(backlight_update);MISSING(uidivmod);MISSING(append_u32);MISSING(cycles_48mhz);
  MISSING(rand32);MISSING(print_tiny);MISSING(fb);
  MISSING(asset_read);MISSING(print_inverse);MISSING(nav_dir);
- for(unsigned i=0;i<36;i++){
+ for(unsigned i=0;i<POOL_COUNT;i++){
   setup(STRAIGHT);unsigned code=1;for(const char*p=patterns[i];*p;p++)code=code*2+(*p=='-');
   assert(encode(letter(i))==code);g.cfg.length=1;g.target[0]=letter(i);g.target[1]=0;startExercise(false,cycles());playAll();
   unsigned n=0;for(const char*p=patterns[i];*p;p++,n++){
    assert(edge[2*n].on && !edge[2*n+1].on && edge[2*n+1].t-edge[2*n].t==(*p=='-'?180000:60000));
    if(n)assert(edge[2*n].t-edge[2*n-1].t==60000);
-  }assert(edges==2*n && !g.used && !g.reveal);check("A-Z/0-9 independent encode and RX mark/space timing");
+  }assert(edges==2*n && !g.used && !g.reveal);check("A-Z/0-9/punctuation/prosigns independent encode and RX mark/space timing");
   setup(STRAIGHT);for(const char*p=patterns[i];*p;p++){
    tone(true);us+=(*p=='-'?180000:60000);tone(false);us+=60000;
-  }us+=90000;decodeGap(cycles());assert(g.used==1 && g.answer[0]==letter(i));check("A-Z/0-9 straight timing decoder");
+  }us+=90000;decodeGap(cycles());assert(g.used==1 && g.answer[0]==letter(i));check("A-Z/0-9/punctuation/prosigns straight timing decoder");
   for(unsigned mode=IAMB_A;mode<=IAMB_B;mode++){
-   setup(mode);userChar(i);assert(g.used==1 && g.answer[0]==letter(i));check("A-Z/0-9 produced IAMB A/B elements decode");
+   setup(mode);userChar(i);assert(g.used==1 && g.answer[0]==letter(i));check("A-Z/0-9/punctuation/prosigns produced IAMB A/B elements decode");
   }
  }
  setup(IAMB_A);g.cfg.length=2;strcpy(g.target,"ET");startExercise(false,cycles());playAll();assert(edge[2].t-edge[1].t==180000);check("RX inter-character gap is three units");
  setup(STRAIGHT);tone(true);us+=60000;tone(false);us+=149000;decodeGap(cycles());assert(!g.used);us+=1000;decodeGap(cycles());assert(!strcmp(g.answer,"E"));us+=270000;decodeGap(cycles());assert(!strcmp(g.answer,"E "));check("letter 2.5 units and word 7 units separators");
  setup(STRAIGHT);tone(true);us+=120000;tone(false);us+=150000;decodeGap(cycles());assert(!strcmp(g.answer,"T"));check("straight two-unit threshold classifies dah");
  setup(STRAIGHT);tone(true);us+=10000;tone(false);us+=500000;decodeGap(cycles());assert(!g.used);check("too-short straight glitch ignored");
- setup(STRAIGHT);tone(true);us+=400000;tone(false);us+=150000;decodeGap(cycles());assert(!strcmp(g.answer,"?"));check("out-of-range straight duration becomes unknown");
+ setup(STRAIGHT);tone(true);us+=400000;tone(false);us+=150000;decodeGap(cycles());assert(!strcmp(g.answer,"*"));check("out-of-range straight duration becomes unknown '*'");
+ setup(STRAIGHT);for(unsigned i=0;i<10;i++){tone(true);us+=60000;tone(false);us+=60000;}tone(true);us+=180000;tone(false);us+=150000;decodeGap(cycles());assert(!strcmp(g.answer,"*"));check("overlong sign stays unknown even if a dah follows");
+ setup(STRAIGHT);for(const char*p="..--..";*p;p++){tone(true);us+=(*p=='-'?180000:60000);tone(false);us+=60000;}us+=90000;decodeGap(cycles());assert(!strcmp(g.answer,"?"));check("real ? decodes as ?, distinct from unknown");
  setup(IAMB_A);g.exercise=2;strcpy(g.target,"F4LPF");startExercise(false,cycles());draw();assert(!g.reveal);playAll();assert(!g.used && !g.reveal && !g.mark);
  for(const char*p=g.target;*p;p++){userChar(charIndex(*p));}correct();assert(!strcmp(g.answer,"F4LPF") && g.score==5 && g.corrected && g.reveal);draw();check("full listen-produce-decode-score cycle F4LPF 5/5");
  clearAnswer();userChar(charIndex('F'));userChar(charIndex('4'));correct();assert(g.score==2 && g.used==2 && g.reveal);check("incomplete answer scores 2/5 without inventing characters");
@@ -315,7 +331,7 @@ int main(void){
  setup(STRAIGHT);g.exercise=1;press(APP_KEY_7);playback(cycles());assert(g.mark);stopPlayback();check("automatic audio cancellation stops tone");
  setup(STRAIGHT);g.exercise=1;press(APP_KEY_7);playback(cycles());assert(g.mark);press(APP_KEY_0);assert(!g.playing && !g.mark && g.exercise==2);check("changing exercise aborts automatic audio");
  setup(STRAIGHT);g.exercise=1;g.cfg.rxWpm=40;g.cfg.rxHz=600;g.cfg.wpm=20;g.cfg.hz=700;g.cfg.length=1;strcpy(g.target,"E");startExercise(false,cycles());playAll();assert(edge[1].t-edge[0].t==30000 && edge[0].word==6195);tone(true);assert(edge[2].word==7227);us+=60000;tone(false);check("RX/TX speeds and 600/700 Hz tones are independent");
- for(unsigned length=1;length<=5;length++){setup(IAMB_A);g.cfg.length=length;startExercise(true,cycles());assert(strlen(g.target)==length);for(unsigned i=0;i<length;i++)assert((g.target[i]>='A'&&g.target[i]<='Z')||(g.target[i]>='0'&&g.target[i]<='9'));playAll();}check("random groups lengths 1..5 remain bounded A-Z/0-9");
+ for(unsigned length=1;length<=5;length++){setup(IAMB_A);g.cfg.length=length;startExercise(true,cycles());assert(strlen(g.target)==length);for(unsigned i=0;i<length;i++)assert(g.target[i]>' ' && g.target[i]!='*' && encode(g.target[i])>1);playAll();}check("random groups lengths 1..5 drawn from the pool, never '*'");
  setup(IAMB_B);legacyConfig=true;app_main(&api);assert(saved.mode==IAMB_B && saved.wpm==20 && saved.hz==700 && saved.rxWpm==18 && saved.rxHz==600 && saved.length==5);check("V0.1.1 six-byte config retains TX settings and defaults RX extension");
  setup(IAMB_A);fixedRandom=true;cfgLength=1;exerciseKeys();exitUs=350000;app_main(&api);assert(edges>=2 && !g.playing && !g.mark && saves==1);check("EXIT during automatic playback stops tone and restores port");
  setup(IAMB_A);fixedRandom=true;cfgLength=1;exerciseKeys();keyEvent(1600000,APP_KEY_9);keyEvent(1640000,APP_KEY_INVALID);
@@ -508,7 +524,7 @@ if result.returncode:
     raise SystemExit(result.stderr or f'host test failed: {result.returncode}')
 
 # The actual previous V0.2 source is a negative control, not a rewritten decoder.
-old_source=(here/'fixtures/v02_decoder.c').read_text().replace('#include "../app_api.h"','#include "host_api.h"')
+old_source=(here/'fixtures/v02_decoder.c').read_text().replace('#include "../app_api.h"','#include "host_api.h"').replace('section(".text.entry"), ', '')
 old_driver=driver[:driver.index('int main(void)')]
 old_driver=old_driver.replace('n==12','n==10').replace('cfgLength,600,cfgGap','cfgLength,600').replace('20,5,600,0','20,5,600').replace('memset(b+6,0xff,6)','memset(b+6,0xff,4)')
 old_driver=old_driver.replace('decodeGap(cycles());}', 'decodeGap(now);}')
@@ -520,7 +536,7 @@ assert(!strcmp(compact,"ET"));}
 old_test=out/'negative.c';old_exe=out/('negative.exe' if os.name=='nt' else 'negative')
 old_test.write_text(prefix+renderer+old_source+old_driver+old_main)
 old_command=cmd.copy();old_command[old_command.index(str(test))]=str(old_test);old_command[old_command.index(str(exe))]=str(old_exe)
-old_command.insert(1,'-Wno-unused-function')
+old_command.append('-Wno-unused-function')  # after -Wall: clang honours the last flag
 subprocess.run(old_command,check=True)
 old_result=subprocess.run([str(old_exe)],capture_output=True,text=True,cwd=out)
 (out/'negative.log').write_text(old_result.stdout+old_result.stderr)
