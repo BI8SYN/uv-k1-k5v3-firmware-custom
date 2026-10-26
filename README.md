@@ -131,6 +131,15 @@ remains available for navigation and operation.
 
 ### Overlay applications and APRS
 
+In the Apps menu, use `UP` / `DOWN` or type the displayed slot number to select
+an installed app, then press `MENU` to run it. A digit selects its slot
+immediately. A second digit entered in less than one second first tries the
+two-digit slot (for example, `1` then `2` selects `12`); if it is not installed,
+the second digit is tried on its own. Uninstalled slots leave the selection
+unchanged. Even if slot `01` is empty, `1` then `2` can still select `12`.
+A successful pair completes the number; a non-digit key or a one-second pause
+starts a new number. `*` toggles app size / version, and `EXIT` closes the menu.
+
 Fusion can store up to 64 applications from the current collection of 43 in
 external Flash. Each app is loaded into a dedicated 4 KiB RAM overlay only
 while it is running, while larger read-only assets such as text, fonts, bitmaps
